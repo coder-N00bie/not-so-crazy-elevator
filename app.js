@@ -1,4 +1,4 @@
-import { QUESTIONS, CATEGORIES } from './questions.js';
+import { QUESTIONS, CATEGORIES, MODES, checkTyped } from './questions.js';
 import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
 
 /* =========================================================
@@ -26,8 +26,20 @@ const me = {
 };
 
 const shuffle = (arr) => { const a = [...arr]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
-const floorLabel = (f, top) => (f <= 0 ? 'L' : f >= top ? 'R' : String(f));
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const compact = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
+
+/* ---------- Floors ----------
+   Internally a player climbs "levels" (0..top, one per question).
+   The tower's real height depends on the mode (100 floors … 1 KRILLION). */
+const modeOf = (st) => MODES[(st && st.settings && st.settings.mode) || 'easy'];
+const realFloor = (level, st) => Math.round((level / st.top) * modeOf(st).roof);
+function floorText(level, st, short = false) {
+  if (level <= 0) return 'L';
+  if (level >= st.top) return 'ROOF';
+  const f = realFloor(level, st);
+  return short || f >= 1e7 ? compact.format(f) : f.toLocaleString('en');
+}
 
 /* ---------------- Sound ---------------- */
 let audio = null;
@@ -45,6 +57,7 @@ document.addEventListener('pointerdown', function startMusic() {
   syncMusic();
   document.removeEventListener('pointerdown', startMusic);
 });
+
 function tone(freq, start, dur, type = 'sine', vol = 0.15) {
   if (muted) return;
   try {
@@ -61,6 +74,7 @@ const sfx = {
   click: () => tone(660, 0, 0.08, 'square', 0.05),
   doors: () => { tone(180, 0, 0.5, 'triangle', 0.06); tone(150, 0.1, 0.5, 'triangle', 0.05); },
   buzz: () => { tone(140, 0, 0.35, 'sawtooth', 0.08); tone(110, 0.15, 0.45, 'sawtooth', 0.08); },
+  fall: () => [600, 480, 360, 240].forEach((f, i) => tone(f, i * 0.09, 0.2, 'sawtooth', 0.06)),
   win: () => [523, 659, 784, 1046].forEach((f, i) => tone(f, i * 0.14, 0.5, 'triangle', 0.12)),
   tick: () => tone(1200, 0, 0.04, 'square', 0.03),
 };
@@ -91,6 +105,7 @@ function initMenu() {
     grid.querySelectorAll('button').forEach((x) => x.classList.toggle('sel', x === b));
   });
   $('#setCat').innerHTML = CATEGORIES.map((c) => `<option>${c}</option>`).join('');
+  $('#setMode').innerHTML = Object.entries(MODES).map(([k, m]) => `<option value="${k}">${m.emoji} ${m.label}</option>`).join('');
 
   const params = new URLSearchParams(location.search);
   if (params.get('room')) $('#codeInput').value = params.get('room').toUpperCase().slice(0, 4);
@@ -106,12 +121,17 @@ function initMenu() {
   $('#endLeaveBtn').onclick = leave;
   $('#brandHome').onclick = () => { if (!net && !solo) show('menu'); };
   $('#startBtn').onclick = () => H && H.start();
-  $('#againBtn').onclick = () => { if (solo) { H.toLobby(); H.start(); } else if (H) H.toLobby(); };
-  ['#setCount', '#setTime', '#setCat'].forEach((s) => $(s).addEventListener('change', () => H && H.updateSettings()));
+  $('#againBtn').onclick = () => H && H.toLobby();
+  ['#setCount', '#setTime', '#setCat', '#setMode', '#setStyle'].forEach((s) => $(s).addEventListener('change', () => H && H.updateSettings()));
   $('#copyLinkBtn').onclick = async () => {
     const url = location.origin + location.pathname + '?room=' + roomCode;
     try { await navigator.clipboard.writeText(url); toast('Invite link copied!'); } catch { toast(url, 6000); }
   };
+  $('#typedForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const v = $('#typedInput').value.trim();
+    if (v) choose(v);
+  });
 
   // Hero indicator idles through floors
   let hf = 0; setInterval(() => { hf = (hf + 1) % 10; $('#heroFloor').textContent = hf === 0 ? 'L' : hf; }, 1200);
@@ -131,20 +151,40 @@ let net = null;      // { sb, ch }
 let solo = false;
 let roomCode = '';
 
+function buildDeck(settings) {
+  const mode = MODES[settings.mode] || MODES.easy;
+  const ok = (q) => (settings.cat === 'All' || q.c === settings.cat) && !(settings.style === 'type' && q.nt);
+  const main = shuffle(QUESTIONS.filter((q) => ok(q) && mode.tiers.includes(q.d)));
+  const fill = shuffle(QUESTIONS.filter((q) => ok(q) && mode.fill.includes(q.d)));
+  let picked = [...main, ...fill].slice(0, settings.count);
+  // Still short (tiny category)? Pull from any difficulty in that category.
+  if (picked.length < settings.count) {
+    const rest = shuffle(QUESTIONS.filter((q) => ok(q) && !picked.includes(q)));
+    picked = [...picked, ...rest].slice(0, settings.count);
+  }
+  return shuffle(picked).map((q) => {
+    const choices = shuffle(q.a);
+    return { cat: q.c, text: q.q, choices, correct: choices.indexOf(q.a[0]), answer: q.a[0], accepted: [q.a[0], ...(q.alt || [])] };
+  });
+}
+
 function createHost(publish) {
+  const saved = store.get('nsce.settings', {});
   const h = {
     phase: 'lobby',
-    settings: { count: 10, time: 15, cat: 'All' },
+    settings: { count: 10, time: 15, cat: 'All', mode: 'easy', style: 'pick', ...saved },
     players: {},
     deck: [], qIndex: -1, startedAt: 0, answers: {}, timer: null, reveal: null,
 
     publicState() {
       const q = this.deck[this.qIndex];
+      const showQ = q && this.phase !== 'lobby';
+      const typed = this.settings.style === 'type';
       return {
-        phase: this.phase, settings: this.settings, hostId: me.id,
+        phase: this.phase, settings: this.settings, hostId: me.id, solo,
         players: this.players, qIndex: this.qIndex, total: this.deck.length || this.settings.count,
         top: this.top(),
-        q: q && (this.phase === 'question' || this.phase === 'reveal') ? { cat: q.cat, text: q.text, choices: q.choices } : null,
+        q: showQ ? { cat: q.cat, text: q.text, choices: typed ? null : q.choices } : null,
         timeLeft: this.phase === 'question' ? Math.max(0, this.startedAt + this.settings.time * 1000 - Date.now()) : 0,
         locked: Object.keys(this.answers),
         reveal: this.phase === 'reveal' || this.phase === 'end' ? this.reveal : null,
@@ -155,7 +195,7 @@ function createHost(publish) {
 
     syncRoster(roster) {
       for (const [id, p] of Object.entries(roster)) {
-        if (!this.players[id]) this.players[id] = { name: p.name, emoji: p.emoji, color: p.color, floor: 0, streak: 0, correct: 0, ms: 0, present: true };
+        if (!this.players[id]) this.players[id] = { name: p.name, emoji: p.emoji, color: p.color, floor: 0, best: 0, streak: 0, correct: 0, ms: 0, present: true };
         else Object.assign(this.players[id], { name: p.name, emoji: p.emoji, present: true });
       }
       for (const id of Object.keys(this.players)) {
@@ -169,18 +209,15 @@ function createHost(publish) {
     },
     updateSettings() {
       if (this.phase !== 'lobby') return;
-      this.settings = { count: +$('#setCount').value, time: +$('#setTime').value, cat: $('#setCat').value };
+      this.settings = { count: +$('#setCount').value, time: +$('#setTime').value, cat: $('#setCat').value, mode: $('#setMode').value, style: $('#setStyle').value };
+      store.set('nsce.settings', this.settings);
       this.push();
     },
     start() {
       if (this.phase !== 'lobby') return;
       this.updateSettings();
-      const pool = QUESTIONS.filter((q) => this.settings.cat === 'All' || q.c === this.settings.cat);
-      this.deck = shuffle(pool).slice(0, this.settings.count).map((q) => {
-        const choices = shuffle(q.a);
-        return { cat: q.c, text: q.q, choices, correct: choices.indexOf(q.a[0]) };
-      });
-      for (const p of Object.values(this.players)) Object.assign(p, { floor: 0, streak: 0, correct: 0, ms: 0 });
+      this.deck = buildDeck(this.settings);
+      for (const p of Object.values(this.players)) Object.assign(p, { floor: 0, best: 0, streak: 0, correct: 0, ms: 0 });
       this.qIndex = -1; this.reveal = null;
       this.next();
     },
@@ -194,7 +231,10 @@ function createHost(publish) {
     },
     answer(pid, choice) {
       if (this.phase !== 'question' || this.answers[pid] || !this.players[pid]) return;
-      if (!(choice >= 0 && choice < 4)) return;
+      if (this.settings.style === 'type') {
+        if (typeof choice !== 'string' || !choice.trim()) return;
+        choice = choice.trim().slice(0, 60);
+      } else if (!(choice >= 0 && choice < 4)) return;
       this.answers[pid] = { choice, ms: Date.now() - this.startedAt };
       this.push();
       this.checkAllAnswered();
@@ -211,21 +251,27 @@ function createHost(publish) {
       clearTimeout(this.timer);
       const q = this.deck[this.qIndex];
       const top = this.top();
-      const picks = {}; const gains = {};
+      const typed = this.settings.style === 'type';
+      const penalty = (MODES[this.settings.mode] || MODES.easy).penalty;
+      const picks = {}; const gains = {}; const right = {};
       for (const [id, p] of Object.entries(this.players)) {
         const a = this.answers[id];
+        const ok = !!a && (typed ? checkTyped(a.choice, q.accepted) : a.choice === q.correct);
         if (a) picks[id] = a.choice;
-        if (a && a.choice === q.correct) {
+        right[id] = ok;
+        const before = p.floor;
+        if (ok) {
           p.streak++; p.correct++; p.ms += a.ms;
-          let g = 1;
-          if (p.streak % 3 === 0) g = 2; // Express elevator!
-          gains[id] = Math.min(g, top - p.floor);
+          const g = p.streak % 3 === 0 ? 2 : 1; // 3 in a row = express elevator
           p.floor = Math.min(top, p.floor + g);
         } else {
-          p.streak = 0; gains[id] = 0;
+          p.streak = 0;
+          if (p.present) p.floor = Math.max(0, p.floor - penalty);
         }
+        p.best = Math.max(p.best || 0, p.floor);
+        gains[id] = p.floor - before;
       }
-      this.reveal = { qIndex: this.qIndex, correct: q.correct, picks, gains };
+      this.reveal = { qIndex: this.qIndex, correct: q.correct, answer: q.answer, picks, gains, right };
       this.phase = 'reveal';
       this.push();
       const someoneTop = Object.values(this.players).some((p) => p.floor >= top);
@@ -235,7 +281,7 @@ function createHost(publish) {
     toLobby() {
       clearTimeout(this.timer);
       this.phase = 'lobby'; this.deck = []; this.qIndex = -1; this.reveal = null; this.answers = {};
-      for (const [id, p] of Object.entries(this.players)) { if (!p.present) delete this.players[id]; else Object.assign(p, { floor: 0, streak: 0, correct: 0, ms: 0 }); }
+      for (const [id, p] of Object.entries(this.players)) { if (!p.present) delete this.players[id]; else Object.assign(p, { floor: 0, best: 0, streak: 0, correct: 0, ms: 0 }); }
       this.push();
     },
     stop() { clearTimeout(this.timer); },
@@ -301,8 +347,7 @@ async function disconnect() {
 function startSolo() {
   solo = true; roomCode = '';
   H = createHost((st) => applyState(st));
-  H.syncRoster({ [me.id]: me });
-  H.start();
+  H.syncRoster({ [me.id]: me }); // shows the lobby, where you pick mode + style
 }
 
 async function createRoom() {
@@ -325,7 +370,6 @@ async function joinRoom(code) {
   try {
     roomCode = code; S = null;
     await connect(code, false);
-    // Wait for the host to send us the state
     const ok = await new Promise((res) => {
       const start = Date.now();
       const iv = setInterval(() => {
@@ -365,14 +409,14 @@ let myChoice = null;
 let deadline = 0;
 let timerRaf = 0;
 let lastTick = 0;
-let endShownFor = null;
+let endShown = false;
 
 function applyState(st) {
   const prev = S; S = st;
   const amHost = !!H;
 
   if (st.phase === 'lobby') {
-    shownQ = -1; revealedQ = -1; endShownFor = null;
+    shownQ = -1; revealedQ = -1; endShown = false;
     renderLobby(st, amHost);
     show('lobby');
     return;
@@ -387,23 +431,24 @@ function applyState(st) {
     if (revealedQ !== st.qIndex) runReveal(st);
   }
   if (st.phase === 'question' || st.phase === 'reveal') {
+    endShown = false;
     show('game');
     renderBuilding(st);
   }
   if (st.phase === 'end') {
-    if (prev && prev.phase === 'reveal' && revealedQ !== st.qIndex && st.reveal) runReveal(st);
-    const key = st.qIndex + ':' + Object.keys(st.players).length;
-    if (endShownFor !== key) {
-      endShownFor = key;
-      const delay = prev && prev.phase === 'question' ? 0 : 0;
-      setTimeout(() => renderEnd(st, amHost), delay);
-    } else renderEnd(st, amHost, true);
+    const first = !endShown;
+    endShown = true;
+    renderEnd(st, amHost, !first);
   }
 }
 
 function renderLobby(st, amHost) {
-  $('#roomCode').textContent = roomCode || 'SOLO';
+  const mode = modeOf(st);
+  $('#roomCodeWrap').style.display = st.solo ? 'none' : '';
+  $('#soloTitle').style.display = st.solo ? '' : 'none';
+  $('#roomCode').textContent = roomCode;
   const players = Object.entries(st.players);
+  $('#playersBox').style.display = st.solo ? 'none' : '';
   $('#playerCount').textContent = players.length;
   $('#lobbyPlayers').innerHTML = players.map(([id, p]) =>
     `<li style="border-color:${p.color}55"><span class="av">${p.emoji}</span><span>${esc(p.name)}</span>${id === st.hostId ? '<span class="tag">HOST</span>' : id === me.id ? '<span class="tag">YOU</span>' : ''}</li>`
@@ -411,35 +456,57 @@ function renderLobby(st, amHost) {
   $('#settingsBox').style.display = amHost ? '' : 'none';
   $('#startBtn').style.display = amHost ? '' : 'none';
   $('#waitHost').style.display = amHost ? 'none' : '';
+  $('#leaveBtn').textContent = st.solo ? 'Back' : 'Leave';
+  $('#modeBlurb').innerHTML = `${mode.emoji} <b>${mode.label}</b>: ${esc(mode.blurb)}${st.settings.style === 'type' ? ' ⌨️ You type your answers.' : ' 🛗 You pick an elevator.'}`;
   $('#settingsSummary').textContent = amHost ? '' : `${st.settings.count} questions · ${st.settings.time}s each · ${st.settings.cat}`;
   if (amHost) {
     $('#setCount').value = st.settings.count; $('#setTime').value = st.settings.time; $('#setCat').value = st.settings.cat;
+    $('#setMode').value = st.settings.mode; $('#setStyle').value = st.settings.style;
   }
 }
 
 function setupQuestion(st, noTimer = false) {
   shownQ = st.qIndex; myChoice = null;
   const q = st.q;
+  const typed = st.settings.style === 'type';
+  const mode = modeOf(st);
+  $('#qMode').textContent = `${mode.emoji} ${mode.label}`;
   $('#qCat').textContent = q.cat;
   $('#qProgress').textContent = `Q ${st.qIndex + 1} / ${st.total}`;
   $('#qText').textContent = q.text;
-  $('#statusLine').textContent = 'Step into an elevator!';
-  const box = $('#elevators');
-  box.innerHTML = q.choices.map((c, i) => `
-    <button class="elevator" data-i="${i}">
-      <div class="ev-indicator"><span class="ev-arrow">▲</span><span>${LETTERS[i]}</span></div>
-      <div class="ev-frame">
-        <div class="ev-interior">
-          <div class="ev-letter">${LETTERS[i]}</div>
-          <div class="ev-answer">${esc(c)}</div>
-          <div class="ev-riders"></div>
+  $('#statusLine').textContent = typed ? 'Type your answer and hit Enter to ride!' : 'Step into an elevator!';
+  $('#elevators').style.display = typed ? 'none' : '';
+  $('#typedWrap').style.display = typed ? '' : 'none';
+
+  if (typed) {
+    const car = $('#typedCar');
+    car.className = 'elevator typed-car';
+    car.querySelector('.ev-riders').innerHTML = '';
+    car.querySelector('.ev-answer').textContent = '?';
+    car.querySelector('.ev-arrow').textContent = '▲';
+    $('#typedInput').value = '';
+    $('#typedInput').disabled = false;
+    $('#typedBtn').disabled = false;
+    $('#typedResults').innerHTML = '';
+    if (!noTimer) setTimeout(() => $('#typedInput').focus(), 50);
+  } else {
+    const box = $('#elevators');
+    box.innerHTML = q.choices.map((c, i) => `
+      <button class="elevator" data-i="${i}">
+        <div class="ev-indicator"><span class="ev-arrow">▲</span><span>${LETTERS[i]}</span></div>
+        <div class="ev-frame">
+          <div class="ev-interior">
+            <div class="ev-letter">${LETTERS[i]}</div>
+            <div class="ev-answer">${esc(c)}</div>
+            <div class="ev-riders"></div>
+          </div>
+          <div class="ev-door l"></div><div class="ev-door r"></div>
+          <div class="ev-door-label">${esc(c)}</div>
         </div>
-        <div class="ev-door l"></div><div class="ev-door r"></div>
-        <div class="ev-door-label">${esc(c)}</div>
-      </div>
-      <div class="ev-callbtn"></div>
-    </button>`).join('');
-  box.querySelectorAll('.elevator').forEach((el) => el.addEventListener('click', () => choose(+el.dataset.i)));
+        <div class="ev-callbtn"></div>
+      </button>`).join('');
+    box.querySelectorAll('.elevator').forEach((el) => el.addEventListener('click', () => choose(+el.dataset.i)));
+  }
   sfx.doors();
 
   cancelAnimationFrame(timerRaf);
@@ -462,24 +529,35 @@ function setupQuestion(st, noTimer = false) {
   }
 }
 
-function choose(i) {
+function choose(choice) {
   if (!S || S.phase !== 'question' || myChoice !== null) return;
-  myChoice = i; sfx.click(); setTimeout(sfx.doors, 120);
-  document.querySelectorAll('.elevator').forEach((el, idx) => {
-    el.disabled = true;
-    if (idx === i) {
-      el.classList.add('mine', 'closed', 'riding');
-      el.querySelector('.ev-riders').innerHTML = `<span>${me.emoji}</span>`;
-    } else el.classList.add('dim');
-  });
+  myChoice = choice; sfx.click(); setTimeout(sfx.doors, 120);
+  if (typeof choice === 'string') {
+    const car = $('#typedCar');
+    car.classList.add('mine', 'closed', 'riding');
+    car.querySelector('.ev-riders').innerHTML = `<span>${me.emoji}</span>`;
+    car.querySelector('.ev-answer').textContent = choice;
+    car.querySelector('.ev-door-label').textContent = `"${choice}"`;
+    $('#typedInput').disabled = true; $('#typedBtn').disabled = true;
+  } else {
+    document.querySelectorAll('#elevators .elevator').forEach((el, idx) => {
+      el.disabled = true;
+      if (idx === choice) {
+        el.classList.add('mine', 'closed', 'riding');
+        el.querySelector('.ev-riders').innerHTML = `<span>${me.emoji}</span>`;
+      } else el.classList.add('dim');
+    });
+  }
   $('#statusLine').textContent = 'Doors closing… going up? 🤞';
-  if (H) H.answer(me.id, i);
-  else send({ t: 'answer', d: { pid: me.id, choice: i } });
+  if (H) H.answer(me.id, choice);
+  else send({ t: 'answer', d: { pid: me.id, choice } });
 }
 
 function closeAllDoors() {
-  document.querySelectorAll('.elevator').forEach((el) => { el.disabled = true; el.classList.add('closed'); });
-  if (myChoice === null) $('#statusLine').textContent = '⏰ Too slow — the doors closed!';
+  document.querySelectorAll('#elevators .elevator').forEach((el) => { el.disabled = true; el.classList.add('closed'); });
+  $('#typedCar').classList.add('closed');
+  $('#typedInput').disabled = true; $('#typedBtn').disabled = true;
+  if (myChoice === null) $('#statusLine').textContent = '⏰ Too slow! The doors closed.';
 }
 
 function renderLocks(st) {
@@ -493,45 +571,60 @@ function runReveal(st) {
   cancelAnimationFrame(timerRaf);
   $('#timerFill').style.transform = 'scaleX(0)';
   const r = st.reveal;
-  const els = document.querySelectorAll('.elevator');
-  els.forEach((el, idx) => {
-    el.disabled = true;
-    el.classList.remove('riding', 'closed', 'dim');
-    const riders = Object.entries(r.picks).filter(([, c]) => c === idx).map(([id]) => st.players[id]).filter(Boolean);
-    el.querySelector('.ev-riders').innerHTML = riders.map((p) => `<span title="${esc(p.name)}">${p.emoji}</span>`).join('');
-    if (idx === r.correct) el.classList.add('correct');
-    else if (riders.length || idx === myChoice) el.classList.add('wrong');
-    else el.classList.add('dim');
-    if (idx !== r.correct) el.querySelector('.ev-arrow').textContent = '▼';
-  });
-  // re-close & open for the "arrival" feel
+  if (!r || !st.q) return;
+  const typed = st.settings.style === 'type';
   sfx.doors();
 
-  const mine = st.players[me.id];
-  const gain = r.gains[me.id] || 0;
-  const picked = r.picks[me.id];
-  if (picked === r.correct) {
-    sfx.ding();
-    const top = st.top;
-    const label = floorLabel(mine.floor, top);
-    ding(gain >= 2 ? `EXPRESS! ${label}` : mine.floor >= top ? 'ROOFTOP!' : `FLOOR ${label}`, 'good', '▲');
-    $('#statusLine').textContent = gain >= 2 ? '🚀 3 in a row — express elevator, +2 floors!' : 'Ding! Correct — up you go!';
-  } else if (picked === undefined) {
-    sfx.buzz();
-    $('#statusLine').textContent = `Missed it! The answer was ${LETTERS[r.correct]}: ${st.q.choices[r.correct]}`;
+  if (typed) {
+    const car = $('#typedCar');
+    car.classList.remove('riding', 'closed');
+    car.classList.add(r.right[me.id] ? 'correct' : 'wrong');
+    car.querySelector('.ev-answer').textContent = r.answer;
+    if (!r.right[me.id]) car.querySelector('.ev-arrow').textContent = '▼';
+    $('#typedInput').disabled = true; $('#typedBtn').disabled = true;
+    $('#typedResults').innerHTML = Object.entries(st.players).map(([id, p]) => {
+      const said = r.picks[id];
+      return `<li class="${r.right[id] ? 'ok' : 'no'}"><span>${p.emoji}</span><span class="name">${esc(p.name)}</span><span class="said">${said ? '"' + esc(said) + '"' : '<i>no answer</i>'}</span><span>${r.right[id] ? '✅' : '❌'}</span></li>`;
+    }).join('');
   } else {
-    sfx.buzz();
-    ding('STUCK!', 'bad', '▼');
-    $('#statusLine').textContent = `Wrong stop! The answer was ${LETTERS[r.correct]}: ${st.q.choices[r.correct]}`;
+    document.querySelectorAll('#elevators .elevator').forEach((el, idx) => {
+      el.disabled = true;
+      el.classList.remove('riding', 'closed', 'dim');
+      const riders = Object.entries(r.picks).filter(([, c]) => c === idx).map(([id]) => st.players[id]).filter(Boolean);
+      el.querySelector('.ev-riders').innerHTML = riders.map((p) => `<span title="${esc(p.name)}">${p.emoji}</span>`).join('');
+      if (idx === r.correct) el.classList.add('correct');
+      else if (riders.length || idx === myChoice) el.classList.add('wrong');
+      else el.classList.add('dim');
+      if (idx !== r.correct) el.querySelector('.ev-arrow').textContent = '▼';
+    });
+  }
+
+  const mine = st.players[me.id];
+  if (!mine) return;
+  const gain = r.gains[me.id] || 0;
+  const answered = r.picks[me.id] !== undefined;
+  const answerText = typed ? r.answer : `${LETTERS[r.correct]}: ${st.q.choices[r.correct]}`;
+  const where = floorText(mine.floor, st, true);
+  if (r.right[me.id]) {
+    sfx.ding();
+    ding(gain >= 2 ? `EXPRESS! ${where}` : mine.floor >= st.top ? 'ROOFTOP!' : `FLOOR ${where}`, 'good', '▲');
+    $('#statusLine').textContent = gain >= 2 ? '🚀 3 in a row: express elevator, double climb!' : 'Ding! Correct. Up you go!';
+  } else {
+    if (gain < 0) { sfx.fall(); ding(`DOWN TO ${where}`, 'bad', '▼'); }
+    else { sfx.buzz(); if (answered) ding('STUCK!', 'bad', '▼'); }
+    const lead = !answered ? 'Missed it!' : typed ? `Not quite!` : 'Wrong stop!';
+    $('#statusLine').textContent = `${lead} The answer was ${answerText}${gain < 0 ? ' · the elevator dropped!' : ''}`;
   }
 }
 
 function ranked(players) {
-  return Object.entries(players).sort(([, a], [, b]) => b.floor - a.floor || b.correct - a.correct || a.ms - b.ms);
+  return Object.entries(players).sort(([, a], [, b]) => b.floor - a.floor || (b.best || 0) - (a.best || 0) || b.correct - a.correct || a.ms - b.ms);
 }
 
 function renderBuilding(st) {
   const top = st.top;
+  const mode = modeOf(st);
+  $('#roofName').textContent = `Roof: ${mode.roofName} floors`;
   const shaft = $('#shaft');
   const h = shaft.clientHeight || 300;
   const step = (h - 34) / top;
@@ -539,24 +632,23 @@ function renderBuilding(st) {
   const every = top > 12 ? 2 : 1;
   for (let f = 0; f <= top; f++) {
     if (f % every && f !== top) continue;
-    floors += `<div class="floor ${f === top ? 'top' : ''}" style="bottom:${f * step}px;height:${step}px">${f === top ? '🏁 ROOF' : floorLabel(f, top)}</div>`;
+    floors += `<div class="floor ${f === top ? 'top' : ''}" style="bottom:${f * step}px;height:${step}px">${f === top ? '🏁 ROOF' : floorText(f, st, true)}</div>`;
   }
-  // Group by floor so tokens don't overlap
   const byFloor = {};
   const tokens = Object.entries(st.players).map(([id, p]) => {
     const n = (byFloor[p.floor] = (byFloor[p.floor] || 0) + 1) - 1;
     return { id, p, n };
   });
   const tokHtml = tokens.map(({ id, p, n }) => {
-    const left = 46 + ((n * 34) % 180);
+    const left = 58 + ((n * 34) % 170);
     return `<div class="token ${id === me.id ? 'me' : ''} ${p.present ? '' : 'gone'}" data-id="${id}" style="--c:${p.color};bottom:${p.floor * step + 2}px;left:${left}px" title="${esc(p.name)}">${p.emoji}</div>`;
   }).join('');
 
-  // Preserve existing token elements so CSS transitions animate
+  const key = top + ':' + st.settings.mode;
   const existing = {};
   shaft.querySelectorAll('.token').forEach((t) => (existing[t.dataset.id] = t));
-  if (!shaft.querySelector('.floor') || shaft.dataset.top != top) {
-    shaft.innerHTML = floors + tokHtml; shaft.dataset.top = top;
+  if (!shaft.querySelector('.floor') || shaft.dataset.key !== key) {
+    shaft.innerHTML = floors + tokHtml; shaft.dataset.key = key;
   } else {
     const tmp = document.createElement('div'); tmp.innerHTML = tokHtml;
     const seen = new Set();
@@ -570,10 +662,10 @@ function renderBuilding(st) {
   }
 
   const meP = st.players[me.id];
-  $('#myFloor').textContent = meP ? floorLabel(meP.floor, top) : 'L';
+  $('#myFloor').textContent = meP ? floorText(meP.floor, st) : 'L';
   $('#standings').innerHTML = ranked(st.players).map(([id, p]) => {
     const lock = st.phase === 'question' && st.locked.includes(id) ? '<span class="lock" title="Locked in">🔒</span>' : '';
-    return `<li class="${id === me.id ? 'me' : ''}" style="${p.present ? '' : 'opacity:.45'}"><span>${p.emoji}</span><span class="name">${esc(p.name)}</span>${lock}<span class="fl">${floorLabel(p.floor, top)}</span></li>`;
+    return `<li class="${id === me.id ? 'me' : ''}" style="${p.present ? '' : 'opacity:.45'}"><span>${p.emoji}</span><span class="name">${esc(p.name)}</span>${lock}<span class="fl">${floorText(p.floor, st, true)}</span></li>`;
   }).join('');
 }
 
@@ -581,17 +673,33 @@ function renderEnd(st, amHost, quiet = false) {
   show('end');
   const list = ranked(st.players);
   const top = st.top;
+  const mode = modeOf(st);
   const winner = list[0] && list[0][1];
   const myRank = list.findIndex(([id]) => id === me.id) + 1;
-  $('#endTitle').textContent = winner && winner.floor >= top ? `${winner.name} reached the rooftop!` : list.length > 1 ? `${winner.name} rode highest!` : `You reached floor ${floorLabel(winner.floor, top)}!`;
+  const mine = st.players[me.id];
+  $('#endTitle').textContent = winner && winner.floor >= top ? `${winner.name} reached the rooftop!` : list.length > 1 ? `${winner.name} rode highest!` : 'Ride over!';
+
+  // How far did I get?
+  if (mine) {
+    const climbed = realFloor(mine.floor, st);
+    const left = mode.roof - climbed;
+    const pct = Math.round((mine.floor / top) * 100);
+    $('#endSub').innerHTML = mine.floor >= top
+      ? `${mode.emoji} ${mode.label}: you made it all <b>${mode.roofName}</b> floors to the roof! 🏁`
+      : `${mode.emoji} ${mode.label}: you reached floor <b>${climbed.toLocaleString('en')}</b> of ${mode.roofName}.<br>Only <b>${left.toLocaleString('en')}</b> floors to go (${pct}% of the way).`;
+    $('#endMeter').style.setProperty('--pct', pct + '%');
+    $('#endMeterWrap').style.display = '';
+  } else $('#endMeterWrap').style.display = 'none';
+
   const order = [1, 0, 2];
+  $('#podium').style.display = list.length > 1 ? '' : 'none';
   $('#podium').innerHTML = order.filter((i) => list[i]).map((i) => {
     const [, p] = list[i];
     const hgt = [130, 95, 70][i];
     return `<div class="pod p${i + 1}"><div class="av">${p.emoji}</div><div class="nm">${esc(p.name)}</div><div class="block" style="height:${hgt}px">${i + 1}</div></div>`;
   }).join('');
   $('#finalList').innerHTML = list.map(([id, p], i) =>
-    `<li style="${id === me.id ? 'background:rgba(242,196,109,.14)' : ''}"><b>#${i + 1}</b><span>${p.emoji}</span><span class="name">${esc(p.name)}</span><span class="muted">${p.correct} correct</span><span class="fl">${floorLabel(p.floor, top)}</span></li>`
+    `<li style="${id === me.id ? 'background:rgba(242,196,109,.14)' : ''}"><b>#${i + 1}</b><span>${p.emoji}</span><span class="name">${esc(p.name)}</span><span class="muted">${p.correct}/${st.total} right</span><span class="fl">${floorText(p.floor, st)}</span></li>`
   ).join('');
   $('#againBtn').style.display = amHost ? '' : 'none';
   $('#endWait').style.display = amHost ? 'none' : '';

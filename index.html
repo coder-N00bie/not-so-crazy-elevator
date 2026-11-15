@@ -57,16 +57,28 @@
     <!-- LOBBY -->
     <section class="screen" id="screen-lobby">
       <div class="card lobby-card">
-        <div class="room-code-wrap">
+        <div class="room-code-wrap" id="roomCodeWrap">
           <span class="muted">Room code</span>
           <div class="room-code" id="roomCode">----</div>
           <button class="btn small ghost" id="copyLinkBtn">🔗 Copy invite link</button>
         </div>
+        <h2 class="solo-title" id="soloTitle">🎯 Solo ride: pick your mode</h2>
 
-        <h3>Riders in the lobby <span class="pill" id="playerCount">0</span></h3>
-        <ul class="player-list" id="lobbyPlayers"></ul>
+        <div id="playersBox">
+          <h3>Riders in the lobby <span class="pill" id="playerCount">0</span></h3>
+          <ul class="player-list" id="lobbyPlayers"></ul>
+        </div>
 
         <div class="settings" id="settingsBox">
+          <label>Difficulty
+            <select id="setMode"></select>
+          </label>
+          <label>Answer style
+            <select id="setStyle">
+              <option value="pick">🛗 Pick an elevator</option>
+              <option value="type">⌨️ Type your answer</option>
+            </select>
+          </label>
           <label>Questions
             <select id="setCount"><option>5</option><option selected>10</option><option>15</option><option>20</option></select>
           </label>
@@ -77,6 +89,7 @@
             <select id="setCat"></select>
           </label>
         </div>
+        <p class="mode-blurb" id="modeBlurb"></p>
         <p class="muted center" id="settingsSummary"></p>
 
         <div class="lobby-actions">
@@ -92,6 +105,7 @@
       <div class="game-layout">
         <div class="game-main">
           <div class="q-head">
+            <span class="pill mode-pill" id="qMode">Mode</span>
             <span class="pill" id="qCat">Category</span>
             <span class="q-progress" id="qProgress">Q 1 / 10</span>
             <span class="q-floor">Your floor: <b id="myFloor">L</b></span>
@@ -99,10 +113,31 @@
           <div class="timer"><div class="timer-fill" id="timerFill"></div></div>
           <div class="led-panel"><p id="qText">Question goes here</p></div>
           <div class="elevators" id="elevators"></div>
+          <div class="typed-wrap" id="typedWrap" style="display:none">
+            <div class="elevator typed-car" id="typedCar">
+              <div class="ev-indicator"><span class="ev-arrow">▲</span><span>⌨️</span></div>
+              <div class="ev-frame">
+                <div class="ev-interior">
+                  <div class="ev-answer">?</div>
+                  <div class="ev-riders"></div>
+                </div>
+                <div class="ev-door l"></div><div class="ev-door r"></div>
+                <div class="ev-door-label"></div>
+              </div>
+            </div>
+            <div class="typed-side">
+              <form class="typed-form" id="typedForm" autocomplete="off">
+                <input id="typedInput" maxlength="60" placeholder="Type your answer…" />
+                <button class="btn gold" id="typedBtn" type="submit">Ride ▲</button>
+              </form>
+              <ul class="typed-results" id="typedResults"></ul>
+            </div>
+          </div>
           <div class="status-line" id="statusLine">Step into an elevator!</div>
         </div>
         <aside class="building card">
           <h3>The Tower</h3>
+          <p class="roof-name" id="roofName"></p>
           <div class="shaft" id="shaft"></div>
           <ol class="standings" id="standings"></ol>
         </aside>
@@ -113,6 +148,10 @@
     <section class="screen" id="screen-end">
       <div class="card end-card">
         <h2 id="endTitle">Rooftop reached!</h2>
+        <div class="end-meter-wrap" id="endMeterWrap">
+          <p class="end-sub" id="endSub"></p>
+          <div class="end-meter"><div class="end-meter-fill" id="endMeter"></div><span class="end-meter-roof">🏁</span></div>
+        </div>
         <div class="podium" id="podium"></div>
         <ol class="final-list" id="finalList"></ol>
         <div class="lobby-actions">

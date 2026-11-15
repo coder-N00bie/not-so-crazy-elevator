@@ -146,7 +146,7 @@ select option { background: var(--bg2); }
 }
 .player-list .av { font-size: 22px; }
 .player-list .tag { margin-left: auto; font-size: 11px; color: var(--gold); }
-.settings { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
 .settings label { font-size: 13px; color: var(--muted); font-weight: 600; display: grid; gap: 6px; }
 .lobby-actions { display: flex; justify-content: space-between; gap: 10px; margin-top: 18px; }
 .lobby-actions .btn.gold { flex: 1; }
@@ -336,4 +336,42 @@ select option { background: var(--bg2); }
   .card { padding: 18px; }
   .podium { gap: 6px; }
   .pod { width: 92px; }
+}
+
+/* ---------- Modes, typed answers, roof meter ---------- */
+.solo-title { font-family: 'Bungee', sans-serif; color: var(--gold); text-align: center; font-size: clamp(18px, 4vw, 26px); margin: 0 0 18px; }
+.mode-blurb {
+  margin: 14px 0 0; padding: 12px 14px; border-radius: 12px; font-size: 14px; line-height: 1.45;
+  background: rgba(242, 196, 109, 0.08); border: 1px solid var(--panel-border);
+}
+.mode-pill { background: rgba(255, 255, 255, 0.08); color: var(--text); }
+.roof-name { margin: -4px 0 10px; text-align: center; font-size: 12px; font-weight: 800; color: var(--muted); letter-spacing: .4px; text-transform: uppercase; }
+
+.typed-wrap { display: grid; grid-template-columns: minmax(160px, 240px) 1fr; gap: 20px; align-items: center; }
+.typed-car { cursor: default; }
+.typed-car .ev-answer { font-size: clamp(16px, 2vw, 22px); }
+.typed-side { display: grid; gap: 14px; align-content: start; }
+.typed-form { display: grid; grid-template-columns: 1fr auto; gap: 10px; }
+.typed-form input { font-size: 18px; font-weight: 700; padding: 14px 16px; }
+.typed-results { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.typed-results li { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 10px; background: rgba(255,255,255,.05); animation: fadeIn .3s; }
+.typed-results li.ok { background: rgba(74, 222, 128, .12); }
+.typed-results li.no { background: rgba(248, 113, 113, .1); }
+.typed-results .name { font-weight: 800; }
+.typed-results .said { flex: 1; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.end-meter-wrap { margin: -6px 0 22px; }
+.end-sub { color: var(--text); line-height: 1.5; margin: 0 0 12px; }
+.end-sub b { color: var(--gold); }
+.end-meter { position: relative; height: 16px; border-radius: 99px; background: rgba(255,255,255,.08); overflow: visible; }
+.end-meter-fill {
+  height: 100%; width: var(--pct, 0%); border-radius: 99px; min-width: 16px;
+  background: linear-gradient(90deg, var(--gold-2), var(--gold), #fff0cc);
+  box-shadow: 0 0 14px rgba(242,196,109,.5); transition: width 1.4s cubic-bezier(.3,1,.4,1);
+}
+.end-meter-roof { position: absolute; right: -6px; top: 50%; transform: translateY(-50%); font-size: 18px; }
+
+@media (max-width: 640px) {
+  .typed-wrap { grid-template-columns: 1fr; }
+  .typed-car { max-width: 220px; margin: 0 auto; width: 100%; }
 }
