@@ -1,6 +1,6 @@
-import { QUESTIONS, CATEGORIES, MODES, matchTyped } from './questions.js?v=11';
-import { PROMPTS, findItem, priorShare, rarityScore, rarityLabel } from './rare.js?v=11';
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=11';
+import { QUESTIONS, CATEGORIES, MODES, matchTyped } from './questions.js?v=12';
+import { PROMPTS, findItem, priorShare, rarityScore, rarityLabel } from './rare.js?v=12';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=12';
 
 /* =========================================================
    The Not So Crazy Elevator
@@ -818,8 +818,8 @@ function runRareReveal(st, r) {
     ding(`+${mineR.points} FLOORS`, 'good', lab.emoji);
     const others = mineR.total.toLocaleString('en');
     const how = mineR.count === 0
-      ? (mineR.total ? `Nobody else out of ${others} riders has ever said “${mineR.item}”!` : `You’re the first person to answer this one!`)
-      : `${mineR.count.toLocaleString('en')} of ${others} other riders said “${mineR.item}” too.`;
+      ? (mineR.total ? `Nobody else out of ${others} ${mineR.total === 1 ? 'rider' : 'riders'} has ever said “${mineR.item}”!` : `You’re the first person to answer this one!`)
+      : `${mineR.count.toLocaleString('en')} of ${others} other ${mineR.total === 1 ? 'rider' : 'riders'} said “${mineR.item}” too.`;
     $('#statusLine').textContent = `${lab.emoji} ${lab.name}! ${how} Up ${mineR.points} floors.`;
   } else if (said !== undefined) {
     sfx.buzz();
