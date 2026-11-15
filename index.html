@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Inter:wght@400;600;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=4" />
+  <link rel="stylesheet" href="style.css?v=5" />
 </head>
 <body>
   <header class="topbar">
@@ -17,7 +17,7 @@
       <span class="brand-icon">🛗</span>
       <span class="brand-text">The <em>Not So Crazy</em> Elevator</span>
     </div>
-    <button class="icon-btn" id="muteBtn" title="Toggle sound" aria-label="Toggle sound">🔊</button>
+    <button class="icon-btn" id="muteBtn" title="Sound on/off" aria-label="Sound on/off">🔊</button>
   </header>
 
   <main>
@@ -29,13 +29,13 @@
           <div class="hd-frame"><div class="hd-door l"></div><div class="hd-door r"></div></div>
         </div>
         <h1>The <span>Not So Crazy</span> Elevator</h1>
-        <p class="tagline">Pick the right elevator, ride to the top. Pick the wrong one… enjoy the music.</p>
+        <p class="tagline">Get it right and you go up. Get it wrong and… well, at least the music’s nice.</p>
       </div>
 
       <div class="card menu-card">
         <label class="field">
           <span>Your name</span>
-          <input id="nameInput" maxlength="16" placeholder="Elevator Rider" autocomplete="off" />
+          <input id="nameInput" maxlength="16" placeholder="What should we call you?" autocomplete="off" />
         </label>
         <div class="field">
           <span>Your avatar</span>
@@ -49,8 +49,49 @@
             <button class="btn" id="joinBtn">Join</button>
           </div>
           <button class="btn ghost" id="soloBtn">🎯 Ride solo</button>
+          <button class="btn ghost" id="editorBtn">✏️ Make my own questions</button>
         </div>
         <p class="error" id="menuError"></p>
+      </div>
+    </section>
+
+    <!-- QUESTION EDITOR -->
+    <section class="screen" id="screen-editor">
+      <div class="card editor-card">
+        <h2 class="solo-title">✏️ My questions</h2>
+        <p class="muted center">Know stuff your friends don’t? Write it here. Your questions stay on this device, and when you host a game you can pick <b>My questions</b> or <b>Mix both</b> so everyone plays yours.</p>
+
+        <form id="qForm" class="q-form" autocomplete="off">
+          <label class="field"><span>Question</span>
+            <input id="qfQuestion" maxlength="160" placeholder="What’s the best elevator snack?" required />
+          </label>
+          <label class="field"><span>✅ Correct answer</span>
+            <input id="qfAnswer" maxlength="60" placeholder="Pizza" required />
+          </label>
+          <div class="field"><span>❌ Wrong answers (you need all 3 if people are picking elevators)</span>
+            <div class="wrong-grid">
+              <input id="qfWrong1" maxlength="60" placeholder="Wrong answer 1" />
+              <input id="qfWrong2" maxlength="60" placeholder="Wrong answer 2" />
+              <input id="qfWrong3" maxlength="60" placeholder="Wrong answer 3" />
+            </div>
+          </div>
+          <label class="field"><span>Other spellings that should count (optional, split them with commas)</span>
+            <input id="qfAlt" maxlength="160" placeholder="pizza slice, za" />
+          </label>
+          <div class="lobby-actions">
+            <button class="btn ghost" type="button" id="qfCancel">Clear</button>
+            <button class="btn gold" type="submit" id="qfSave">➕ Add question</button>
+          </div>
+          <p class="error" id="qfError"></p>
+        </form>
+
+        <h3>Saved questions <span class="pill" id="myQCount">0</span></h3>
+        <ol class="my-questions" id="myQList"></ol>
+        <p class="muted center" id="myQEmpty">Nothing here yet. Write your first one up there ↑</p>
+
+        <div class="lobby-actions">
+          <button class="btn" id="editorBack">← Back</button>
+        </div>
       </div>
     </section>
 
@@ -62,10 +103,10 @@
           <div class="room-code" id="roomCode">----</div>
           <button class="btn small ghost" id="copyLinkBtn">🔗 Copy invite link</button>
         </div>
-        <h2 class="solo-title" id="soloTitle">🎯 Solo ride: pick your mode</h2>
+        <h2 class="solo-title" id="soloTitle">🎯 Just you. How hard do you want it?</h2>
 
         <div id="playersBox">
-          <h3>Riders in the lobby <span class="pill" id="playerCount">0</span></h3>
+          <h3>Who’s here <span class="pill" id="playerCount">0</span></h3>
           <ul class="player-list" id="lobbyPlayers"></ul>
         </div>
 
@@ -88,15 +129,23 @@
           <label>Category
             <select id="setCat"></select>
           </label>
+          <label>Questions from
+            <select id="setSource">
+              <option value="builtin">📚 Built-in</option>
+              <option value="custom">✏️ My questions</option>
+              <option value="mix">🔀 Mix both</option>
+            </select>
+          </label>
         </div>
+        <button class="btn small ghost lobby-edit" id="lobbyEditBtn" type="button">✏️ Edit my questions</button>
         <p class="mode-blurb" id="modeBlurb"></p>
         <p class="muted center" id="settingsSummary"></p>
 
         <div class="lobby-actions">
           <button class="btn ghost" id="leaveBtn">Leave</button>
-          <button class="btn gold" id="startBtn">Start the ride ▲</button>
+          <button class="btn gold" id="startBtn">Going up ▲</button>
         </div>
-        <p class="muted center" id="waitHost">Waiting for the host to start…</p>
+        <p class="muted center" id="waitHost">Hang tight, the host will start soon…</p>
       </div>
     </section>
 
@@ -127,13 +176,13 @@
             </div>
             <div class="typed-side">
               <form class="typed-form" id="typedForm" autocomplete="off">
-                <input id="typedInput" maxlength="60" placeholder="Type your answer…" />
+                <input id="typedInput" maxlength="60" placeholder="Your answer…" />
                 <button class="btn gold" id="typedBtn" type="submit">Ride ▲</button>
               </form>
               <ul class="typed-results" id="typedResults"></ul>
             </div>
           </div>
-          <div class="status-line" id="statusLine">Step into an elevator!</div>
+          <div class="status-line" id="statusLine">Pick an elevator.</div>
         </div>
         <aside class="building card">
           <h3>The Tower</h3>
@@ -158,7 +207,7 @@
           <button class="btn ghost" id="endLeaveBtn">Exit</button>
           <button class="btn gold" id="againBtn">Ride again</button>
         </div>
-        <p class="muted center" id="endWait">Waiting for the host…</p>
+        <p class="muted center" id="endWait">Waiting on the host to pick what’s next…</p>
       </div>
     </section>
   </main>
@@ -166,6 +215,6 @@
   <div class="toast" id="toast"></div>
   <div class="ding-overlay" id="dingOverlay"><div class="ding-box"><span class="ding-arrow" id="dingArrow">▲</span><span id="dingText">Floor 1</span></div></div>
 
-  <script type="module" src="app.js?v=4"></script>
+  <script type="module" src="app.js?v=5"></script>
 </body>
 </html>

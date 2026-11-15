@@ -375,3 +375,16 @@ select option { background: var(--bg2); }
   .typed-wrap { grid-template-columns: 1fr; }
   .typed-car { max-width: 220px; margin: 0 auto; width: 100%; }
 }
+
+/* ---------- Question editor ---------- */
+.editor-card { max-width: 680px; margin: 0 auto; }
+.q-form { margin: 18px 0 24px; padding: 18px; border-radius: 14px; background: rgba(0,0,0,.18); border: 1px solid var(--panel-border); }
+.q-form .lobby-actions { margin-top: 4px; }
+.wrong-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.lobby-edit { display: block; margin: 12px auto 0; }
+.my-questions { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.my-questions li { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 12px; background: rgba(255,255,255,.05); animation: fadeIn .3s; }
+.mq-text { flex: 1; display: grid; gap: 4px; min-width: 0; }
+.mq-ans { font-size: 14px; overflow-wrap: anywhere; }
+.mq-note { font-size: 12px; color: var(--gold); }
+@media (max-width: 640px) { .wrong-grid { grid-template-columns: 1fr; } }

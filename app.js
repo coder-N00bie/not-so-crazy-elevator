@@ -1,5 +1,5 @@
-import { QUESTIONS, CATEGORIES, MODES, checkTyped } from './questions.js?v=4';
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=4';
+import { QUESTIONS, CATEGORIES, MODES, checkTyped } from './questions.js?v=5';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=5';
 
 /* =========================================================
    The Not So Crazy Elevator
@@ -122,10 +122,10 @@ function initMenu() {
   $('#brandHome').onclick = () => { if (!net && !solo) show('menu'); };
   $('#startBtn').onclick = () => H && H.start();
   $('#againBtn').onclick = () => H && H.toLobby();
-  ['#setCount', '#setTime', '#setCat', '#setMode', '#setStyle'].forEach((s) => $(s).addEventListener('change', () => H && H.updateSettings()));
+  ['#setCount', '#setTime', '#setCat', '#setMode', '#setStyle', '#setSource'].forEach((s) => $(s).addEventListener('change', () => H && H.updateSettings()));
   $('#copyLinkBtn').onclick = async () => {
     const url = location.origin + location.pathname + '?room=' + roomCode;
-    try { await navigator.clipboard.writeText(url); toast('Invite link copied!'); } catch { toast(url, 6000); }
+    try { await navigator.clipboard.writeText(url); toast('Link copied. Send it to your friends!'); } catch { toast(url, 6000); }
   };
   $('#typedForm').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -139,7 +139,7 @@ function initMenu() {
 function readName() {
   const n = $('#nameInput').value.trim();
   $('#menuError').textContent = '';
-  if (!n) { $('#menuError').textContent = 'Pick a name first!'; $('#nameInput').focus(); return false; }
+  if (!n) { $('#menuError').textContent = 'What should we call you? Type a name first.'; $('#nameInput').focus(); return false; }
   me.name = n.slice(0, 16); store.set('nsce.name', me.name); return true;
 }
 
@@ -151,17 +151,36 @@ let net = null;      // { sb, ch }
 let solo = false;
 let roomCode = '';
 
-function buildDeck(settings) {
+/* ---------- Custom questions (saved in this browser) ---------- */
+const loadCustom = () => { const v = store.get('nsce.custom', []); return Array.isArray(v) ? v : []; };
+const saveCustom = (list) => store.set('nsce.custom', list);
+// In elevator mode a custom question needs 3 wrong answers; typing mode only needs the right one.
+const customUsable = (style) => loadCustom()
+  .filter((c) => style === 'type' || c.wrong.length >= 3)
+  .map((c) => ({ d: 0, c: 'Custom', q: c.q, a: [c.a, ...c.wrong.slice(0, 3)], alt: c.alt || [] }));
+
+function builtinPicks(settings, n) {
   const mode = MODES[settings.mode] || MODES.easy;
   const ok = (q) => (settings.cat === 'All' || q.c === settings.cat) && !(settings.style === 'type' && q.nt);
   const main = shuffle(QUESTIONS.filter((q) => ok(q) && mode.tiers.includes(q.d)));
   const fill = shuffle(QUESTIONS.filter((q) => ok(q) && mode.fill.includes(q.d)));
-  let picked = [...main, ...fill].slice(0, settings.count);
+  let picked = [...main, ...fill].slice(0, n);
   // Still short (tiny category)? Pull from any difficulty in that category.
-  if (picked.length < settings.count) {
+  if (picked.length < n) {
     const rest = shuffle(QUESTIONS.filter((q) => ok(q) && !picked.includes(q)));
-    picked = [...picked, ...rest].slice(0, settings.count);
+    picked = [...picked, ...rest].slice(0, n);
   }
+  return picked;
+}
+
+function buildDeck(settings) {
+  const custom = shuffle(customUsable(settings.style));
+  let picked;
+  if (settings.source === 'custom') picked = custom.slice(0, settings.count);
+  else if (settings.source === 'mix') {
+    const mine = custom.slice(0, Math.ceil(settings.count / 2));
+    picked = [...mine, ...builtinPicks(settings, settings.count - mine.length)];
+  } else picked = builtinPicks(settings, settings.count);
   return shuffle(picked).map((q) => {
     const choices = shuffle(q.a);
     return { cat: q.c, text: q.q, choices, correct: choices.indexOf(q.a[0]), answer: q.a[0], accepted: [q.a[0], ...(q.alt || [])] };
@@ -172,7 +191,7 @@ function createHost(publish) {
   const saved = store.get('nsce.settings', {});
   const h = {
     phase: 'lobby',
-    settings: { count: 10, time: 15, cat: 'All', mode: 'easy', style: 'pick', ...saved },
+    settings: { count: 10, time: 15, cat: 'All', mode: 'easy', style: 'pick', source: 'builtin', ...saved },
     players: {},
     deck: [], qIndex: -1, startedAt: 0, answers: {}, timer: null, reveal: null,
 
@@ -209,14 +228,22 @@ function createHost(publish) {
     },
     updateSettings() {
       if (this.phase !== 'lobby') return;
-      this.settings = { count: +$('#setCount').value, time: +$('#setTime').value, cat: $('#setCat').value, mode: $('#setMode').value, style: $('#setStyle').value };
+      this.settings = { count: +$('#setCount').value, time: +$('#setTime').value, cat: $('#setCat').value, mode: $('#setMode').value, style: $('#setStyle').value, source: $('#setSource').value };
       store.set('nsce.settings', this.settings);
       this.push();
     },
     start() {
       if (this.phase !== 'lobby') return;
       this.updateSettings();
-      this.deck = buildDeck(this.settings);
+      const deck = buildDeck(this.settings);
+      if (!deck.length) {
+        const all = loadCustom().length;
+        toast(all && this.settings.style === 'pick'
+          ? 'Your questions need 3 wrong answers each to work with elevators. Add some, or switch to typing.'
+          : 'You haven’t written any questions yet. Tap ✏️ Edit my questions to add a few.', 5000);
+        return;
+      }
+      this.deck = deck;
       for (const p of Object.values(this.players)) Object.assign(p, { floor: 0, best: 0, streak: 0, correct: 0, ms: 0 });
       this.qIndex = -1; this.reveal = null;
       this.next();
@@ -365,7 +392,7 @@ async function createRoom() {
 }
 
 async function joinRoom(code) {
-  if (!/^[A-Z]{4}$/.test(code)) { $('#menuError').textContent = 'Room codes are 4 letters.'; return; }
+  if (!/^[A-Z]{4}$/.test(code)) { $('#menuError').textContent = 'Room codes are 4 letters, like ABCD.'; return; }
   const btn = $('#joinBtn'); btn.disabled = true; btn.textContent = '…';
   try {
     roomCode = code; S = null;
@@ -377,7 +404,7 @@ async function joinRoom(code) {
         else if (Date.now() - start > 6000) { clearInterval(iv); res(false); }
       }, 150);
     });
-    if (!ok) throw new Error(`Room ${code} not found. Check the code and try again.`);
+    if (!ok) throw new Error(`Couldn’t find room ${code}. Double-check the letters?`);
     history.replaceState(null, '', '?room=' + roomCode);
   } catch (e) {
     await disconnect(); S = null;
@@ -395,7 +422,7 @@ async function leave() {
 }
 
 function hostLeft() {
-  toast('The host left the building. 🚪', 4000);
+  toast('The host left, so the game’s over. 🚪', 4000);
   leave();
 }
 
@@ -418,7 +445,7 @@ function applyState(st) {
   if (st.phase === 'lobby') {
     shownQ = -1; revealedQ = -1; endShown = false;
     renderLobby(st, amHost);
-    show('lobby');
+    if (!$('#screen-editor').classList.contains('active')) show('lobby'); // don't yank the host out of the editor
     return;
   }
 
@@ -457,12 +484,73 @@ function renderLobby(st, amHost) {
   $('#startBtn').style.display = amHost ? '' : 'none';
   $('#waitHost').style.display = amHost ? 'none' : '';
   $('#leaveBtn').textContent = st.solo ? 'Back' : 'Leave';
-  $('#modeBlurb').innerHTML = `${mode.emoji} <b>${mode.label}</b>: ${esc(mode.blurb)}${st.settings.style === 'type' ? ' ⌨️ You type your answers.' : ' 🛗 You pick an elevator.'}`;
-  $('#settingsSummary').textContent = amHost ? '' : `${st.settings.count} questions · ${st.settings.time}s each · ${st.settings.cat}`;
+  $('#modeBlurb').innerHTML = `${mode.emoji} <b>${mode.label}</b>: ${esc(mode.blurb)}${st.settings.style === 'type' ? ' ⌨️ You type the answers yourself.' : ' 🛗 You answer by picking an elevator.'}`;
+  const src = { builtin: '', custom: ' · the host’s own questions', mix: ' · a mix with the host’s own questions' }[st.settings.source || 'builtin'];
+  $('#settingsSummary').textContent = amHost ? '' : `${st.settings.count} questions · ${st.settings.time}s each · ${st.settings.cat}${src}`;
+  $('#lobbyEditBtn').style.display = amHost ? '' : 'none';
   if (amHost) {
     $('#setCount').value = st.settings.count; $('#setTime').value = st.settings.time; $('#setCat').value = st.settings.cat;
-    $('#setMode').value = st.settings.mode; $('#setStyle').value = st.settings.style;
+    $('#setMode').value = st.settings.mode; $('#setStyle').value = st.settings.style; $('#setSource').value = st.settings.source || 'builtin';
+    const n = loadCustom().length;
+    $('#setSource').options[1].textContent = `✏️ My questions (${n})`;
   }
+}
+
+/* ---------------- Question editor ---------------- */
+let editorReturn = 'menu';
+function openEditor(from) {
+  editorReturn = from;
+  renderMyQuestions();
+  show('editor');
+  setTimeout(() => $('#qfQuestion').focus(), 50);
+}
+function closeEditor() {
+  if (editorReturn === 'lobby' && H && S && S.phase === 'lobby') { renderLobby(S, true); show('lobby'); }
+  else show('menu');
+}
+function renderMyQuestions() {
+  const list = loadCustom();
+  $('#myQCount').textContent = list.length;
+  $('#myQEmpty').style.display = list.length ? 'none' : '';
+  $('#myQList').innerHTML = list.map((c, i) => `
+    <li>
+      <div class="mq-text">
+        <b>${esc(c.q)}</b>
+        <span class="mq-ans">✅ ${esc(c.a)}${c.wrong.length ? ` <span class="muted">· ❌ ${c.wrong.map(esc).join(', ')}</span>` : ''}</span>
+        ${c.wrong.length < 3 ? '<span class="mq-note">⌨️ Typing mode only (add 3 wrong answers to use it with elevators)</span>' : ''}
+      </div>
+      <button class="btn small ghost" data-del="${i}" title="Delete">🗑️</button>
+    </li>`).join('');
+}
+function initEditor() {
+  $('#editorBtn').onclick = () => openEditor('menu');
+  $('#lobbyEditBtn').onclick = () => openEditor('lobby');
+  $('#editorBack').onclick = closeEditor;
+  $('#qfCancel').onclick = () => { $('#qForm').reset(); $('#qfError').textContent = ''; };
+  $('#myQList').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-del]'); if (!b) return;
+    const list = loadCustom(); list.splice(+b.dataset.del, 1); saveCustom(list);
+    renderMyQuestions();
+  });
+  $('#qForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const q = $('#qfQuestion').value.trim();
+    const a = $('#qfAnswer').value.trim();
+    const wrong = ['#qfWrong1', '#qfWrong2', '#qfWrong3'].map((s) => $(s).value.trim()).filter(Boolean);
+    const alt = $('#qfAlt').value.split(',').map((s) => s.trim()).filter(Boolean).slice(0, 10);
+    $('#qfError').textContent = '';
+    if (!q || !a) { $('#qfError').textContent = 'You’ll need a question and the right answer.'; return; }
+    const all = [a, ...wrong].map((s) => s.toLowerCase());
+    if (new Set(all).size !== all.length) { $('#qfError').textContent = 'Two of your answers are the same.'; return; }
+    const list = loadCustom();
+    if (list.length >= 200) { $('#qfError').textContent = 'You’ve hit 200 questions, which is the limit. Delete a few first.'; return; }
+    list.push({ q, a, wrong, alt });
+    saveCustom(list);
+    $('#qForm').reset();
+    renderMyQuestions();
+    toast('Saved 👍');
+    $('#qfQuestion').focus();
+  });
 }
 
 function setupQuestion(st, noTimer = false) {
@@ -474,7 +562,7 @@ function setupQuestion(st, noTimer = false) {
   $('#qCat').textContent = q.cat;
   $('#qProgress').textContent = `Q ${st.qIndex + 1} / ${st.total}`;
   $('#qText').textContent = q.text;
-  $('#statusLine').textContent = typed ? 'Type your answer and hit Enter to ride!' : 'Step into an elevator!';
+  $('#statusLine').textContent = typed ? 'Type it in and hit Enter.' : 'Pick an elevator.';
   $('#elevators').style.display = typed ? 'none' : '';
   $('#typedWrap').style.display = typed ? '' : 'none';
 
@@ -548,7 +636,7 @@ function choose(choice) {
       } else el.classList.add('dim');
     });
   }
-  $('#statusLine').textContent = 'Doors closing… going up? 🤞';
+  $('#statusLine').textContent = 'Doors closing… fingers crossed 🤞';
   if (H) H.answer(me.id, choice);
   else send({ t: 'answer', d: { pid: me.id, choice } });
 }
@@ -557,13 +645,13 @@ function closeAllDoors() {
   document.querySelectorAll('#elevators .elevator').forEach((el) => { el.disabled = true; el.classList.add('closed'); });
   $('#typedCar').classList.add('closed');
   $('#typedInput').disabled = true; $('#typedBtn').disabled = true;
-  if (myChoice === null) $('#statusLine').textContent = '⏰ Too slow! The doors closed.';
+  if (myChoice === null) $('#statusLine').textContent = '⏰ Too slow, the doors closed on you.';
 }
 
 function renderLocks(st) {
   const ids = Object.entries(st.players).filter(([, p]) => p.present);
   const lockedCount = st.locked.filter((id) => st.players[id]).length;
-  if (myChoice !== null && ids.length > 1) $('#statusLine').textContent = `Riding… ${lockedCount}/${ids.length} riders locked in`;
+  if (myChoice !== null && ids.length > 1) $('#statusLine').textContent = `Waiting on everyone else… ${lockedCount} of ${ids.length} are in.`;
 }
 
 function runReveal(st) {
@@ -608,12 +696,12 @@ function runReveal(st) {
   if (r.right[me.id]) {
     sfx.ding();
     ding(gain >= 2 ? `EXPRESS! ${where}` : mine.floor >= st.top ? 'ROOFTOP!' : `FLOOR ${where}`, 'good', '▲');
-    $('#statusLine').textContent = gain >= 2 ? '🚀 3 in a row: express elevator, double climb!' : 'Ding! Correct. Up you go!';
+    $('#statusLine').textContent = gain >= 2 ? '🚀 Three in a row! You caught the express, so you go up two.' : 'Ding! You got it. Up you go.';
   } else {
     if (gain < 0) { sfx.fall(); ding(`DOWN TO ${where}`, 'bad', '▼'); }
     else { sfx.buzz(); if (answered) ding('STUCK!', 'bad', '▼'); }
-    const lead = !answered ? 'Missed it!' : typed ? `Not quite!` : 'Wrong stop!';
-    $('#statusLine').textContent = `${lead} The answer was ${answerText}${gain < 0 ? ' · the elevator dropped!' : ''}`;
+    const lead = !answered ? 'Time’s up.' : typed ? 'Not quite.' : 'Wrong elevator.';
+    $('#statusLine').textContent = `${lead} The answer was ${answerText}${gain < 0 ? '. Down you go. 😬' : '.'}`;
   }
 }
 
@@ -677,7 +765,7 @@ function renderEnd(st, amHost, quiet = false) {
   const winner = list[0] && list[0][1];
   const myRank = list.findIndex(([id]) => id === me.id) + 1;
   const mine = st.players[me.id];
-  $('#endTitle').textContent = winner && winner.floor >= top ? `${winner.name} reached the rooftop!` : list.length > 1 ? `${winner.name} rode highest!` : 'Ride over!';
+  $('#endTitle').textContent = winner && winner.floor >= top ? `${winner.name} made it to the roof!` : list.length > 1 ? `${winner.name} got the highest!` : 'That’s the ride!';
 
   // How far did I get?
   if (mine) {
@@ -685,9 +773,9 @@ function renderEnd(st, amHost, quiet = false) {
     const left = mode.roof - climbed;
     const pct = Math.round((mine.floor / top) * 100);
     $('#endSub').innerHTML = mine.floor >= top
-      ? `${mode.emoji} ${mode.label}: you made it all <b>${mode.roofName}</b> floors to the roof! 🏁`
-      : `${mode.emoji} ${mode.label}: you reached floor <b>${climbed.toLocaleString('en')}</b> of ${mode.roofName}.<br>Only <b>${left.toLocaleString('en')}</b> floors to go (${pct}% of the way).` +
-        ((mine.best || 0) > mine.floor ? `<br>Your highest was floor <b>${realFloor(mine.best, st).toLocaleString('en')}</b> before the elevator dropped. 😬` : '');
+      ? `${mode.emoji} ${mode.label}: you made it all <b>${mode.roofName}</b> floors to the roof. Nice! 🏁`
+      : `${mode.emoji} ${mode.label}: you got to floor <b>${climbed.toLocaleString('en')}</b> out of ${mode.roofName}.<br>That’s ${pct}% of the way. Just <b>${left.toLocaleString('en')}</b> floors left to go.` +
+        ((mine.best || 0) > mine.floor ? `<br>You were up on floor <b>${realFloor(mine.best, st).toLocaleString('en')}</b> before the elevator dropped. So close. 😬` : '');
     $('#endMeter').style.setProperty('--pct', pct + '%');
     $('#endMeterWrap').style.display = '';
   } else $('#endMeterWrap').style.display = 'none';
@@ -709,4 +797,5 @@ function renderEnd(st, amHost, quiet = false) {
 
 /* ---------------- Boot ---------------- */
 initMenu();
+initEditor();
 show('menu');

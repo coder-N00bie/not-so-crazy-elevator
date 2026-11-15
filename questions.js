@@ -213,10 +213,10 @@ export const CATEGORIES = ['All', ...Array.from(new Set(QUESTIONS.map((q) => q.c
 //   penalty = levels lost on a wrong answer
 //   roof    = how many floors tall the tower is (display only)
 export const MODES = {
-  easy:       { label: 'Easy',       emoji: '🟢', tiers: [1], fill: [2],    penalty: 0, roof: 100,  roofName: '100',        blurb: 'Easy questions, no penalty for wrong answers. Roof: 100 floors.' },
-  medium:     { label: 'Medium',     emoji: '🟡', tiers: [2], fill: [1, 3], penalty: 0, roof: 1e3,  roofName: '1,000',      blurb: 'Trickier questions. Roof: 1,000 floors.' },
-  hard:       { label: 'Hard',       emoji: '🔴', tiers: [3], fill: [2, 4], penalty: 1, roof: 1e6,  roofName: '1 MILLION',  blurb: 'Hard questions. A wrong answer drops you a level. Roof: 1,000,000 floors.' },
-  impossible: { label: 'Impossible', emoji: '💀', tiers: [4], fill: [3],    penalty: 2, roof: 1e15, roofName: '1 KRILLION', blurb: 'Brutal questions. A wrong answer drops you TWO levels. Roof: 1 KRILLION floors.' },
+  easy:       { label: 'Easy',       emoji: '🟢', tiers: [1], fill: [2],    penalty: 0, roof: 100,  roofName: '100',        blurb: 'Nice and easy. Wrong answers don’t cost you anything. The roof is 100 floors up.' },
+  medium:     { label: 'Medium',     emoji: '🟡', tiers: [2], fill: [1, 3], penalty: 0, roof: 1e3,  roofName: '1,000',      blurb: 'A little trickier, but still no penalty for wrong answers. The roof is 1,000 floors up.' },
+  hard:       { label: 'Hard',       emoji: '🔴', tiers: [3], fill: [2, 4], penalty: 1, roof: 1e6,  roofName: '1 MILLION',  blurb: 'Tough questions, and every wrong answer sends you down a level. The roof is a million floors up.' },
+  impossible: { label: 'Impossible', emoji: '💀', tiers: [4], fill: [3],    penalty: 2, roof: 1e15, roofName: '1 KRILLION', blurb: 'Good luck. Wrong answers drop you two levels, and the roof is 1 KRILLION floors up.' },
 };
 
 // ---------- Typed-answer checking ----------
