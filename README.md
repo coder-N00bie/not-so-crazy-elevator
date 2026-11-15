@@ -20,3 +20,12 @@ Then open http://localhost:8000.
 
 ## Updating
 GitHub Pages caches files for a few minutes. After changing JS/CSS, bump the `?v=` number in `index.html` (and the imports at the top of `app.js`) so players get the new version right away.
+
+## Rarity mode
+Each round asks you to name something ("Name a fruit"). Answers are checked against the lists in `rare.js`, and the rarer your answer is among everyone who has ever played, the more floors you climb (up to 100).
+
+All-time answer counts live in Supabase:
+- table `public.rare_answers (prompt_id, answer, count)`: RLS on, no direct access for browsers
+- function `public.submit_rare_answers(p_prompt text, p_answers text[]) returns json`: adds this round's answers and returns `{ total, counts }`. It's the only way in, and `anon` can execute it.
+
+If Supabase can't be reached, the game falls back to guessing rarity from each list's order (common answers first).

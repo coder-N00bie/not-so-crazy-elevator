@@ -1,5 +1,6 @@
-import { QUESTIONS, CATEGORIES, MODES, matchTyped } from './questions.js?v=8';
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=8';
+import { QUESTIONS, CATEGORIES, MODES, matchTyped } from './questions.js?v=9';
+import { PROMPTS, findItem, priorShare, rarityScore, rarityLabel } from './rare.js?v=9';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=9';
 
 /* =========================================================
    The Not So Crazy Elevator
@@ -33,7 +34,10 @@ const compact = new Intl.NumberFormat('en', { notation: 'compact', maximumFracti
    Internally a player climbs "levels" (0..top, one per question).
    The tower's real height depends on the mode (100 floors … 1 QUADRILLION). */
 const modeOf = (st) => MODES[(st && st.settings && st.settings.mode) || 'easy'];
-const realFloor = (level, st) => Math.round((level / st.top) * modeOf(st).roof);
+// In Rarity mode a level IS a floor (you earn up to 100 per round), so the roof is just the top level.
+const roofOf = (st) => (modeOf(st).rare ? st.top : modeOf(st).roof);
+const roofNameOf = (st) => (modeOf(st).rare ? st.top.toLocaleString('en') : modeOf(st).roofName);
+const realFloor = (level, st) => Math.round((level / st.top) * roofOf(st));
 function floorText(level, st, short = false) {
   if (level <= 0) return 'L';
   if (level >= st.top) return 'ROOF';
@@ -174,6 +178,9 @@ function builtinPicks(settings, n) {
 }
 
 function buildDeck(settings) {
+  if ((MODES[settings.mode] || {}).rare) {
+    return shuffle(PROMPTS).slice(0, settings.count).map((p) => ({ rare: true, id: p.id, cat: 'Rarity', text: `${p.emoji} ${p.text}`, items: p.items }));
+  }
   const custom = shuffle(customUsable(settings.style));
   let picked;
   if (settings.source === 'custom') picked = custom.slice(0, settings.count);
@@ -198,19 +205,22 @@ function createHost(publish) {
     publicState() {
       const q = this.deck[this.qIndex];
       const showQ = q && this.phase !== 'lobby';
-      const typed = this.settings.style === 'type';
+      const typed = this.settings.style === 'type' || (q && q.rare);
       return {
         phase: this.phase, settings: this.settings, hostId: me.id, solo,
         players: this.players, qIndex: this.qIndex, total: this.deck.length || this.settings.count,
         top: this.top(),
-        q: showQ ? { cat: q.cat, text: q.text, choices: typed ? null : q.choices } : null,
+        q: showQ ? { cat: q.cat, text: q.text, choices: typed ? null : q.choices, rare: !!q.rare } : null,
         timeLeft: this.phase === 'question' ? Math.max(0, this.startedAt + this.settings.time * 1000 - Date.now()) : 0,
         locked: Object.keys(this.answers),
         reveal: this.phase === 'reveal' || this.phase === 'end' ? this.reveal : null,
       };
     },
     // One level per question, so a perfect run always reaches the roof.
-    top() { return Math.max(1, this.deck.length || this.settings.count); },
+    top() {
+      const n = Math.max(1, this.deck.length || this.settings.count);
+      return (MODES[this.settings.mode] || {}).rare ? n * 100 : n;
+    },
     push() { publish(this.publicState()); },
 
     syncRoster(roster) {
@@ -259,7 +269,7 @@ function createHost(publish) {
     },
     answer(pid, choice) {
       if (this.phase !== 'question' || this.answers[pid] || !this.players[pid]) return;
-      if (this.settings.style === 'type') {
+      if (this.settings.style === 'type' || this.deck[this.qIndex].rare) {
         if (typeof choice !== 'string' || !choice.trim()) return;
         choice = choice.trim().slice(0, 60);
       } else if (!(choice >= 0 && choice < 4)) return;
@@ -277,6 +287,7 @@ function createHost(publish) {
     doReveal() {
       if (this.phase !== 'question') return;
       clearTimeout(this.timer);
+      if (this.deck[this.qIndex].rare) return this.doRareReveal();
       const q = this.deck[this.qIndex];
       const top = this.top();
       const typed = this.settings.style === 'type';
@@ -307,6 +318,43 @@ function createHost(publish) {
       const someoneTop = Object.values(this.players).some((p) => p.floor >= top);
       this.timer = setTimeout(() => (someoneTop ? this.end() : this.next()), REVEAL_MS);
     },
+    // Rarity round: check each answer is real, count it in Supabase, score by how rare it is.
+    async doRareReveal() {
+      clearTimeout(this.timer);
+      this.phase = 'scoring'; // no more answers while we count
+      const q = this.deck[this.qIndex];
+      const qIndex = this.qIndex;
+      const found = {};
+      for (const [id, a] of Object.entries(this.answers)) found[id] = findItem(a.choice, q.items);
+      const valid = Object.values(found).filter(Boolean).map((f) => f.item);
+      const stats = await submitRareAnswers(q.id, valid);
+      if (this.phase !== 'scoring' || this.qIndex !== qIndex) return; // the game was left meanwhile
+      const top = this.top();
+      const picks = {}; const gains = {}; const right = {}; const fixed = {}; const rare = {};
+      for (const [id, p] of Object.entries(this.players)) {
+        const a = this.answers[id]; const f = found[id];
+        if (a) picks[id] = a.choice;
+        const before = p.floor;
+        right[id] = !!f;
+        if (f) {
+          // Leave your own answer out, so "how many others said it" is fair to the first person.
+          const sameHere = valid.filter((v) => v === f.item).length;
+          const count = Math.max(0, (stats ? Number(stats.counts[f.item]) || sameHere : sameHere) - 1);
+          const total = Math.max(0, (stats ? stats.total : valid.length) - 1);
+          const points = rarityScore({ count, total, prior: priorShare(q.items, f.item) });
+          rare[id] = { item: f.item, count, total, points };
+          if (f.fixed) fixed[id] = true;
+          p.correct++;
+          p.floor = Math.min(top, p.floor + points);
+        }
+        p.best = Math.max(p.best || 0, p.floor);
+        gains[id] = p.floor - before;
+      }
+      this.reveal = { qIndex, correct: -1, answer: null, picks, gains, right, fixed, rare, online: !!stats };
+      this.phase = 'reveal';
+      this.push();
+      this.timer = setTimeout(() => this.next(), REVEAL_MS + 1500);
+    },
     end() { clearTimeout(this.timer); this.phase = 'end'; this.push(); },
     toLobby() {
       clearTimeout(this.timer);
@@ -323,10 +371,31 @@ function createHost(publish) {
    NETWORK (Supabase Realtime)
    ========================================================= */
 let supabaseLib = null;
+let sbClient = null;
 async function getClient() {
+  if (sbClient) return sbClient;
   if (!SUPABASE_URL || !SUPABASE_KEY) throw new Error('Multiplayer is not configured yet.');
   if (!supabaseLib) supabaseLib = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.3/+esm');
-  return supabaseLib.createClient(SUPABASE_URL, SUPABASE_KEY, { realtime: { params: { eventsPerSecond: 20 } } });
+  sbClient = supabaseLib.createClient(SUPABASE_URL, SUPABASE_KEY, { realtime: { params: { eventsPerSecond: 20 } } });
+  return sbClient;
+}
+
+// Adds this round's answers to the all-time counts and returns { total, counts }.
+// Returns null if Supabase can't be reached (the game still works, using its own guesses).
+async function submitRareAnswers(promptId, answers) {
+  if (!answers.length) return null;
+  try {
+    const sb = await getClient();
+    const res = await Promise.race([
+      sb.rpc('submit_rare_answers', { p_prompt: promptId, p_answers: answers }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timed out')), 5000)),
+    ]);
+    if (res.error) throw res.error;
+    return { total: Number(res.data && res.data.total) || 0, counts: (res.data && res.data.counts) || {} };
+  } catch (e) {
+    console.warn('Could not reach the rarity counts:', e.message || e);
+    return null;
+  }
 }
 
 function rosterFrom(ch) {
@@ -491,6 +560,8 @@ function renderLobby(st, amHost) {
   const src = { builtin: '', custom: ' · the host’s own questions', mix: ' · a mix with the host’s own questions' }[st.settings.source || 'builtin'];
   $('#settingsSummary').textContent = amHost ? '' : `${st.settings.count} questions · ${st.settings.time}s each · ${st.settings.cat}${src}`;
   $('#lobbyEditBtn').style.display = amHost ? '' : 'none';
+  // Rarity mode has its own prompts and is always typed, so these don't apply
+  ['#setStyle', '#setCat', '#setSource'].forEach((sel) => { $(sel).disabled = !!mode.rare; });
   if (amHost) {
     $('#setCount').value = st.settings.count; $('#setTime').value = st.settings.time; $('#setCat').value = st.settings.cat;
     $('#setMode').value = st.settings.mode; $('#setStyle').value = st.settings.style; $('#setSource').value = st.settings.source || 'builtin';
@@ -559,13 +630,13 @@ function initEditor() {
 function setupQuestion(st, noTimer = false) {
   shownQ = st.qIndex; myChoice = null;
   const q = st.q;
-  const typed = st.settings.style === 'type';
+  const typed = st.settings.style === 'type' || q.rare;
   const mode = modeOf(st);
   $('#qMode').textContent = `${mode.emoji} ${mode.label}`;
   $('#qCat').textContent = q.cat;
   $('#qProgress').textContent = `Q ${st.qIndex + 1} / ${st.total}`;
   $('#qText').textContent = q.text;
-  $('#statusLine').textContent = typed ? 'Type it in and hit Enter.' : 'Pick an elevator.';
+  $('#statusLine').textContent = q.rare ? 'Name one. The rarer it is, the higher you ride.' : typed ? 'Type it in and hit Enter.' : 'Pick an elevator.';
   $('#elevators').style.display = typed ? 'none' : '';
   $('#typedWrap').style.display = typed ? '' : 'none';
 
@@ -663,6 +734,7 @@ function runReveal(st) {
   $('#timerFill').style.transform = 'scaleX(0)';
   const r = st.reveal;
   if (!r || !st.q) return;
+  if (st.q.rare) return runRareReveal(st, r);
   const typed = st.settings.style === 'type';
   sfx.doors();
 
@@ -708,6 +780,46 @@ function runReveal(st) {
   }
 }
 
+function runRareReveal(st, r) {
+  const car = $('#typedCar');
+  const mineR = r.rare[me.id];
+  const said = r.picks[me.id];
+  car.classList.remove('riding', 'closed');
+  car.classList.add(mineR ? 'correct' : 'wrong');
+  car.querySelector('.ev-answer').textContent = mineR ? mineR.item : '✗';
+  car.querySelector('.ev-arrow').textContent = mineR ? '▲' : '■';
+  $('#typedInput').disabled = true; $('#typedBtn').disabled = true;
+
+  // Everyone's answers, rarest first
+  const rows = Object.entries(st.players)
+    .map(([id, p]) => ({ id, p, said: r.picks[id], x: r.rare[id] }))
+    .sort((a, b) => (b.x ? b.x.points : -1) - (a.x ? a.x.points : -1));
+  $('#typedResults').innerHTML = rows.map(({ p, said: s, x }) => {
+    const lab = x && rarityLabel(x.points);
+    return `<li class="${x ? 'ok' : 'no'}"><span>${p.emoji}</span><span class="name">${esc(p.name)}</span>
+      <span class="said">${s ? '"' + esc(s) + '"' : '<i>no answer</i>'}${x && x.item.toLowerCase() !== String(s).trim().toLowerCase() ? ' <span class="autofix">→ ' + esc(x.item) + '</span>' : ''}</span>
+      ${x ? `<span class="rarity r${lab.tier}">${lab.emoji} ${lab.name}</span><b class="pts">+${x.points}</b>` : '<span>❌</span>'}</li>`;
+  }).join('');
+
+  if (mineR) {
+    const lab = rarityLabel(mineR.points);
+    sfx.ding();
+    ding(`+${mineR.points} FLOORS`, 'good', lab.emoji);
+    const others = mineR.total.toLocaleString('en');
+    const how = mineR.count === 0
+      ? (mineR.total ? `Nobody else out of ${others} riders has ever said “${mineR.item}”!` : `You’re the first person to answer this one!`)
+      : `${mineR.count.toLocaleString('en')} of ${others} other riders said “${mineR.item}” too.`;
+    $('#statusLine').textContent = `${lab.emoji} ${lab.name}! ${how} Up ${mineR.points} floors.`;
+  } else if (said !== undefined) {
+    sfx.buzz();
+    ding('NOT ON THE LIST', 'bad', '✗');
+    $('#statusLine').textContent = `Hmm, we don’t have “${said}” on the list for this one. No floors this round.`;
+  } else {
+    sfx.buzz();
+    $('#statusLine').textContent = 'Time’s up! No floors this round.';
+  }
+}
+
 function ranked(players) {
   return Object.entries(players).sort(([, a], [, b]) => b.floor - a.floor || (b.best || 0) - (a.best || 0) || b.correct - a.correct || a.ms - b.ms);
 }
@@ -715,12 +827,12 @@ function ranked(players) {
 function renderBuilding(st) {
   const top = st.top;
   const mode = modeOf(st);
-  $('#roofName').textContent = `Roof: ${mode.roofName} floors`;
+  $('#roofName').textContent = `Roof: ${roofNameOf(st)} floors`;
   const shaft = $('#shaft');
   const h = shaft.clientHeight || 300;
   const step = (h - 34) / top;
   let floors = '';
-  const every = top > 12 ? 2 : 1;
+  const every = mode.rare ? 100 * Math.ceil(top / 100 / 12) : top > 12 ? 2 : 1;
   for (let f = 0; f <= top; f++) {
     if (f % every && f !== top) continue;
     floors += `<div class="floor ${f === top ? 'top' : ''}" style="bottom:${f * step}px;height:${step}px">${f === top ? '🏁 ROOF' : floorText(f, st, true)}</div>`;
@@ -773,11 +885,11 @@ function renderEnd(st, amHost, quiet = false) {
   // How far did I get?
   if (mine) {
     const climbed = realFloor(mine.floor, st);
-    const left = mode.roof - climbed;
+    const left = roofOf(st) - climbed;
     const pct = Math.round((mine.floor / top) * 100);
     $('#endSub').innerHTML = mine.floor >= top
-      ? `${mode.emoji} ${mode.label}: you made it all <b>${mode.roofName}</b> floors to the roof. Nice! 🏁`
-      : `${mode.emoji} ${mode.label}: you got to floor <b>${climbed.toLocaleString('en')}</b> out of ${mode.roofName}.<br>That’s ${pct}% of the way. Just <b>${left.toLocaleString('en')}</b> floors left to go.` +
+      ? `${mode.emoji} ${mode.label}: you made it all <b>${roofNameOf(st)}</b> floors to the roof. Nice! 🏁`
+      : `${mode.emoji} ${mode.label}: you got to floor <b>${climbed.toLocaleString('en')}</b> out of ${roofNameOf(st)}.<br>That’s ${pct}% of the way. Just <b>${left.toLocaleString('en')}</b> floors left to go.` +
         ((mine.best || 0) > mine.floor ? `<br>You were up on floor <b>${realFloor(mine.best, st).toLocaleString('en')}</b> before the elevator dropped. So close. 😬` : '');
     $('#endMeter').style.setProperty('--pct', pct + '%');
     $('#endMeterWrap').style.display = '';
