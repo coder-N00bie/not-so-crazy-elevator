@@ -1,5 +1,5 @@
-import { QUESTIONS, CATEGORIES, MODES, checkTyped } from './questions.js?v=7';
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=7';
+import { QUESTIONS, CATEGORIES, MODES, matchTyped } from './questions.js?v=8';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=8';
 
 /* =========================================================
    The Not So Crazy Elevator
@@ -31,7 +31,7 @@ const compact = new Intl.NumberFormat('en', { notation: 'compact', maximumFracti
 
 /* ---------- Floors ----------
    Internally a player climbs "levels" (0..top, one per question).
-   The tower's real height depends on the mode (100 floors … 1 KRILLION). */
+   The tower's real height depends on the mode (100 floors … 1 QUADRILLION). */
 const modeOf = (st) => MODES[(st && st.settings && st.settings.mode) || 'easy'];
 const realFloor = (level, st) => Math.round((level / st.top) * modeOf(st).roof);
 function floorText(level, st, short = false) {
@@ -183,7 +183,7 @@ function buildDeck(settings) {
   } else picked = builtinPicks(settings, settings.count);
   return shuffle(picked).map((q) => {
     const choices = shuffle(q.a);
-    return { cat: q.c, text: q.q, choices, correct: choices.indexOf(q.a[0]), answer: q.a[0], accepted: [q.a[0], ...(q.alt || [])] };
+    return { cat: q.c, text: q.q, choices, correct: choices.indexOf(q.a[0]), answer: q.a[0], accepted: [q.a[0], ...(q.alt || [])], wrong: q.a.slice(1) };
   });
 }
 
@@ -281,10 +281,12 @@ function createHost(publish) {
       const top = this.top();
       const typed = this.settings.style === 'type';
       const penalty = (MODES[this.settings.mode] || MODES.easy).penalty;
-      const picks = {}; const gains = {}; const right = {};
+      const picks = {}; const gains = {}; const right = {}; const fixed = {};
       for (const [id, p] of Object.entries(this.players)) {
         const a = this.answers[id];
-        const ok = !!a && (typed ? checkTyped(a.choice, q.accepted) : a.choice === q.correct);
+        const m = typed && a ? matchTyped(a.choice, q.accepted, q.wrong) : null;
+        const ok = !!a && (typed ? !!m : a.choice === q.correct);
+        if (m && m.fixed) fixed[id] = true; // misspelled, autocorrected
         if (a) picks[id] = a.choice;
         right[id] = ok;
         const before = p.floor;
@@ -299,7 +301,7 @@ function createHost(publish) {
         p.best = Math.max(p.best || 0, p.floor);
         gains[id] = p.floor - before;
       }
-      this.reveal = { qIndex: this.qIndex, correct: q.correct, answer: q.answer, picks, gains, right };
+      this.reveal = { qIndex: this.qIndex, correct: q.correct, answer: q.answer, picks, gains, right, fixed };
       this.phase = 'reveal';
       this.push();
       const someoneTop = Object.values(this.players).some((p) => p.floor >= top);
@@ -673,7 +675,7 @@ function runReveal(st) {
     $('#typedInput').disabled = true; $('#typedBtn').disabled = true;
     $('#typedResults').innerHTML = Object.entries(st.players).map(([id, p]) => {
       const said = r.picks[id];
-      return `<li class="${r.right[id] ? 'ok' : 'no'}"><span>${p.emoji}</span><span class="name">${esc(p.name)}</span><span class="said">${said ? '"' + esc(said) + '"' : '<i>no answer</i>'}</span><span>${r.right[id] ? '✅' : '❌'}</span></li>`;
+      return `<li class="${r.right[id] ? 'ok' : 'no'}"><span>${p.emoji}</span><span class="name">${esc(p.name)}</span><span class="said">${said ? '"' + esc(said) + '"' : '<i>no answer</i>'}${r.fixed && r.fixed[id] ? ' <span class="autofix">→ ✏️ ' + esc(r.answer) + '</span>' : ''}</span><span>${r.right[id] ? '✅' : '❌'}</span></li>`;
     }).join('');
   } else {
     document.querySelectorAll('#elevators .elevator').forEach((el, idx) => {
@@ -697,7 +699,7 @@ function runReveal(st) {
   if (r.right[me.id]) {
     sfx.ding();
     ding(gain >= 2 ? `EXPRESS! ${where}` : mine.floor >= st.top ? 'ROOFTOP!' : `FLOOR ${where}`, 'good', '▲');
-    $('#statusLine').textContent = gain >= 2 ? '🚀 Three in a row! You caught the express, so you go up two.' : 'Ding! You got it. Up you go.';
+    $('#statusLine').textContent = gain >= 2 ? '🚀 Three in a row! You caught the express, so you go up two.' : (r.fixed && r.fixed[me.id] ? `Ding! Close enough, autocorrected to “${r.answer}”. Up you go.` : 'Ding! You got it. Up you go.');
   } else {
     if (gain < 0) { sfx.fall(); ding(`DOWN TO ${where}`, 'bad', '▼'); }
     else { sfx.buzz(); if (answered) ding('STUCK!', 'bad', '▼'); }

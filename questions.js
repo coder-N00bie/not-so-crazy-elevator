@@ -216,7 +216,7 @@ export const MODES = {
   easy:       { label: 'Easy',       emoji: '🟢', tiers: [1], fill: [2],    penalty: 0, roof: 100,  roofName: '100',        blurb: 'Nice and easy. Wrong answers don’t cost you anything. The roof is 100 floors up.' },
   medium:     { label: 'Medium',     emoji: '🟡', tiers: [2], fill: [1, 3], penalty: 0, roof: 1e3,  roofName: '1,000',      blurb: 'A little trickier, but still no penalty for wrong answers. The roof is 1,000 floors up.' },
   hard:       { label: 'Hard',       emoji: '🔴', tiers: [3], fill: [2, 4], penalty: 1, roof: 1e6,  roofName: '1 MILLION',  blurb: 'Tough questions, and every wrong answer sends you down a level. The roof is a million floors up.' },
-  impossible: { label: 'Impossible', emoji: '💀', tiers: [4], fill: [3],    penalty: 2, roof: 1e15, roofName: '1 KRILLION', blurb: 'Good luck. Wrong answers drop you two levels, and the roof is 1 KRILLION floors up.' },
+  impossible: { label: 'Impossible', emoji: '💀', tiers: [4], fill: [3],    penalty: 2, roof: 1e15, roofName: '1 QUADRILLION', blurb: 'Good luck. Wrong answers drop you two levels, and the roof is 1 QUADRILLION floors up. (That’s a 1 with 15 zeros.)' },
 };
 
 // ---------- Typed-answer checking ----------
@@ -241,15 +241,30 @@ function lev(a, b) {
   }
   return dp[b.length];
 }
-// True if `input` matches any accepted answer (small typos forgiven, numbers must be exact).
-export function checkTyped(input, accepted) {
+// How many letters can be off and still autocorrect: about 1 in 3, at least 1.
+const typoAllowance = (t) => (t.length < 3 ? 0 : Math.max(1, Math.floor(t.length * 0.34)));
+const isNumber = (t) => /^[\d.,]+$/.test(t);
+const squash = (t) => t.replace(/[ ,.\-]/g, '');
+
+// Autocorrecting answer check.
+//   Returns null if the answer is wrong, otherwise { fixed } where fixed = true
+//   means it was misspelled and got autocorrected to the right answer.
+//   Numbers must be exact. A typo only autocorrects to the right answer if it's
+//   closer to it than to any of the wrong choices (so "Austria" won't become "Australia").
+export function matchTyped(input, accepted, wrong = []) {
   const g = normalize(input);
-  if (!g) return false;
-  return accepted.some((ans) => {
-    const t = normalize(ans);
-    if (g === t || g.replace(/,/g, '') === t.replace(/,/g, '')) return true;
-    if (/^[\d.,]+$/.test(t)) return false;
-    const allow = t.length >= 12 ? 2 : t.length >= 5 ? 1 : 0;
-    return lev(g, t) <= allow;
-  });
+  if (!g) return null;
+  const targets = accepted.map(normalize).filter(Boolean);
+  if (targets.some((t) => g === t || squash(g) === squash(t))) return { fixed: false };
+
+  let best = Infinity;
+  for (const t of targets) {
+    if (isNumber(t)) continue;
+    const d = lev(squash(g), squash(t));
+    if (d <= typoAllowance(squash(t))) best = Math.min(best, d);
+  }
+  if (best === Infinity) return null;
+  const closestWrong = Math.min(Infinity, ...wrong.map(normalize).filter(Boolean).map((w) => lev(squash(g), squash(w))));
+  return best < closestWrong ? { fixed: true } : null;
 }
+export const checkTyped = (input, accepted, wrong) => !!matchTyped(input, accepted, wrong);
