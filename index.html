@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>The Not So Crazy Elevator</title>
+  <meta name="description" content="A multiplayer trivia game where you ride elevators to answer questions." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛗</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Inter:wght@400;600;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand" id="brandHome" title="Back to lobby">
+      <span class="brand-icon">🛗</span>
+      <span class="brand-text">The <em>Not So Crazy</em> Elevator</span>
+    </div>
+    <button class="icon-btn" id="muteBtn" title="Toggle sound" aria-label="Toggle sound">🔊</button>
+  </header>
+
+  <main>
+    <!-- MENU -->
+    <section class="screen active" id="screen-menu">
+      <div class="hero">
+        <div class="hero-doors" aria-hidden="true">
+          <div class="hd-indicator"><span>▲</span><b id="heroFloor">L</b></div>
+          <div class="hd-frame"><div class="hd-door l"></div><div class="hd-door r"></div></div>
+        </div>
+        <h1>The <span>Not So Crazy</span> Elevator</h1>
+        <p class="tagline">Pick the right elevator, ride to the top. Pick the wrong one… enjoy the music.</p>
+      </div>
+
+      <div class="card menu-card">
+        <label class="field">
+          <span>Your name</span>
+          <input id="nameInput" maxlength="16" placeholder="Elevator Rider" autocomplete="off" />
+        </label>
+        <div class="field">
+          <span>Your avatar</span>
+          <div class="avatar-grid" id="avatarGrid"></div>
+        </div>
+
+        <div class="menu-actions">
+          <button class="btn gold" id="createBtn">🏨 Create a room</button>
+          <div class="join-row">
+            <input id="codeInput" maxlength="4" placeholder="CODE" autocomplete="off" />
+            <button class="btn" id="joinBtn">Join</button>
+          </div>
+          <button class="btn ghost" id="soloBtn">🎯 Ride solo</button>
+        </div>
+        <p class="error" id="menuError"></p>
+      </div>
+    </section>
+
+    <!-- LOBBY -->
+    <section class="screen" id="screen-lobby">
+      <div class="card lobby-card">
+        <div class="room-code-wrap">
+          <span class="muted">Room code</span>
+          <div class="room-code" id="roomCode">----</div>
+          <button class="btn small ghost" id="copyLinkBtn">🔗 Copy invite link</button>
+        </div>
+
+        <h3>Riders in the lobby <span class="pill" id="playerCount">0</span></h3>
+        <ul class="player-list" id="lobbyPlayers"></ul>
+
+        <div class="settings" id="settingsBox">
+          <label>Questions
+            <select id="setCount"><option>5</option><option selected>10</option><option>15</option><option>20</option></select>
+          </label>
+          <label>Seconds each
+            <select id="setTime"><option>10</option><option selected>15</option><option>20</option><option>30</option></select>
+          </label>
+          <label>Category
+            <select id="setCat"></select>
+          </label>
+        </div>
+        <p class="muted center" id="settingsSummary"></p>
+
+        <div class="lobby-actions">
+          <button class="btn ghost" id="leaveBtn">Leave</button>
+          <button class="btn gold" id="startBtn">Start the ride ▲</button>
+        </div>
+        <p class="muted center" id="waitHost">Waiting for the host to start…</p>
+      </div>
+    </section>
+
+    <!-- GAME -->
+    <section class="screen" id="screen-game">
+      <div class="game-layout">
+        <div class="game-main">
+          <div class="q-head">
+            <span class="pill" id="qCat">Category</span>
+            <span class="q-progress" id="qProgress">Q 1 / 10</span>
+            <span class="q-floor">Your floor: <b id="myFloor">L</b></span>
+          </div>
+          <div class="timer"><div class="timer-fill" id="timerFill"></div></div>
+          <div class="led-panel"><p id="qText">Question goes here</p></div>
+          <div class="elevators" id="elevators"></div>
+          <div class="status-line" id="statusLine">Step into an elevator!</div>
+        </div>
+        <aside class="building card">
+          <h3>The Tower</h3>
+          <div class="shaft" id="shaft"></div>
+          <ol class="standings" id="standings"></ol>
+        </aside>
+      </div>
+    </section>
+
+    <!-- END -->
+    <section class="screen" id="screen-end">
+      <div class="card end-card">
+        <h2 id="endTitle">Rooftop reached!</h2>
+        <div class="podium" id="podium"></div>
+        <ol class="final-list" id="finalList"></ol>
+        <div class="lobby-actions">
+          <button class="btn ghost" id="endLeaveBtn">Exit</button>
+          <button class="btn gold" id="againBtn">Ride again</button>
+        </div>
+        <p class="muted center" id="endWait">Waiting for the host…</p>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast"></div>
+  <div class="ding-overlay" id="dingOverlay"><div class="ding-box"><span class="ding-arrow" id="dingArrow">▲</span><span id="dingText">Floor 1</span></div></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
