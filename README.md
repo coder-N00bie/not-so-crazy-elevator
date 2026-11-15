@@ -17,3 +17,6 @@ A multiplayer trivia game: every question has four elevators, one per answer. St
 python3 -m http.server 8000
 ```
 Then open http://localhost:8000.
+
+## Updating
+GitHub Pages caches files for a few minutes. After changing JS/CSS, bump the `?v=` number in `index.html` (and the imports at the top of `app.js`) so players get the new version right away.

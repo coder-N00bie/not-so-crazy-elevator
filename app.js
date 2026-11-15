@@ -1,5 +1,5 @@
-import { QUESTIONS, CATEGORIES, MODES, checkTyped } from './questions.js';
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
+import { QUESTIONS, CATEGORIES, MODES, checkTyped } from './questions.js?v=3';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=3';
 
 /* =========================================================
    The Not So Crazy Elevator
