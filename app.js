@@ -1,5 +1,5 @@
-import { QUESTIONS, CATEGORIES, MODES, checkTyped } from './questions.js?v=5';
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=5';
+import { QUESTIONS, CATEGORIES, MODES, checkTyped } from './questions.js?v=6';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=6';
 
 /* =========================================================
    The Not So Crazy Elevator
@@ -209,7 +209,7 @@ function createHost(publish) {
         reveal: this.phase === 'reveal' || this.phase === 'end' ? this.reveal : null,
       };
     },
-    top() { return Math.max(3, this.deck.length || this.settings.count); },
+    top() { return Math.max(1, this.deck.length || this.settings.count); } // one level per question, so a perfect run always hits the roof,
     push() { publish(this.publicState()); },
 
     syncRoster(roster) {
