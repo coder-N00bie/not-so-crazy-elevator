@@ -213,11 +213,11 @@ export const CATEGORIES = ['All', ...Array.from(new Set(QUESTIONS.map((q) => q.c
 //   penalty = levels lost on a wrong answer
 //   roof    = how many floors tall the tower is (display only)
 export const MODES = {
-  easy:       { label: 'Easy',       emoji: '🟢', tiers: [1], fill: [2],    penalty: 0, roof: 100,  roofName: '100',        blurb: 'Nice and easy. Wrong answers don’t cost you anything. The roof is 100 floors up.' },
-  medium:     { label: 'Medium',     emoji: '🟡', tiers: [2], fill: [1, 3], penalty: 0, roof: 1e3,  roofName: '1,000',      blurb: 'A little trickier, but still no penalty for wrong answers. The roof is 1,000 floors up.' },
-  hard:       { label: 'Hard',       emoji: '🔴', tiers: [3], fill: [2, 4], penalty: 1, roof: 1e6,  roofName: '1 MILLION',  blurb: 'Tough questions, and every wrong answer sends you down a level. The roof is a million floors up.' },
-  rare:       { label: 'Rarity',     emoji: '💎', tiers: [],  fill: [],     penalty: 0, rare: true, roof: 0, roofName: '', blurb: 'No right or wrong answers here. Each round asks you to name something, and the rarer your answer is (compared with everyone who has ever played), the higher you ride. Up to 100 floors a round.' },
-  impossible: { label: 'Impossible', emoji: '💀', tiers: [4], fill: [3],    penalty: 2, roof: 1e15, roofName: '1 QUADRILLION', blurb: 'Good luck. Wrong answers drop you two levels, and the roof is 1 QUADRILLION floors up. (That’s a 1 with 15 zeros.)' },
+  rare:       { label: 'Rarity (name it!)',     emoji: '💎', tiers: [],  fill: [],     penalty: 0, rare: true, roof: 0, roofName: '', blurb: 'No right or wrong answers here. Each round asks you to name something, and the rarer your answer is (compared with everyone who has ever played), the higher you ride. Up to 100 floors a round.' },
+  easy:       { label: 'Trivia: Easy',       emoji: '🟢', tiers: [1], fill: [2],    penalty: 0, roof: 100,  roofName: '100',        blurb: 'Nice and easy. Wrong answers don’t cost you anything. The roof is 100 floors up.' },
+  medium:     { label: 'Trivia: Medium',     emoji: '🟡', tiers: [2], fill: [1, 3], penalty: 0, roof: 1e3,  roofName: '1,000',      blurb: 'A little trickier, but still no penalty for wrong answers. The roof is 1,000 floors up.' },
+  hard:       { label: 'Trivia: Hard',       emoji: '🔴', tiers: [3], fill: [2, 4], penalty: 1, roof: 1e6,  roofName: '1 MILLION',  blurb: 'Tough questions, and every wrong answer sends you down a level. The roof is a million floors up.' },
+  impossible: { label: 'Trivia: Impossible', emoji: '💀', tiers: [4], fill: [3],    penalty: 2, roof: 1e15, roofName: '1 QUADRILLION', blurb: 'Good luck. Wrong answers drop you two levels, and the roof is 1 QUADRILLION floors up. (That’s a 1 with 15 zeros.)' },
 };
 
 // ---------- Typed-answer checking ----------

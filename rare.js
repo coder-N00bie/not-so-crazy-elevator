@@ -2,7 +2,7 @@
 // Each list is roughly ordered from most common to least common answer. That order is
 // used as a starting guess for how popular an answer is, until real players' answers
 // (stored in Supabase) take over.
-import { normalize } from './questions.js?v=10';
+import { normalize } from './questions.js?v=11';
 
 const P = (id, emoji, text, items) => ({ id, emoji, text, items: items.split('|').map((s) => s.trim()).filter(Boolean) });
 

@@ -1,6 +1,6 @@
-import { QUESTIONS, CATEGORIES, MODES, matchTyped } from './questions.js?v=10';
-import { PROMPTS, findItem, priorShare, rarityScore, rarityLabel } from './rare.js?v=10';
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=10';
+import { QUESTIONS, CATEGORIES, MODES, matchTyped } from './questions.js?v=11';
+import { PROMPTS, findItem, priorShare, rarityScore, rarityLabel } from './rare.js?v=11';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=11';
 
 /* =========================================================
    The Not So Crazy Elevator
@@ -26,6 +26,16 @@ const me = {
   color: COLORS[Math.floor(Math.random() * COLORS.length)],
 };
 
+// Seeded shuffle, so everyone gets the same Rarity prompts on the same day.
+function seededShuffle(arr, seedText) {
+  let h = 2166136261;
+  for (const c of seedText) h = Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0;
+  const rand = () => { h = Math.imul(h ^ (h >>> 15), 2246822507) >>> 0; h = Math.imul(h ^ (h >>> 13), 3266489909) >>> 0; h ^= h >>> 16; return (h >>> 0) / 4294967296; };
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+const todayKey = () => new Date().toISOString().slice(0, 10); // UTC date, same worldwide
 const shuffle = (arr) => { const a = [...arr]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const compact = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
@@ -179,7 +189,7 @@ function builtinPicks(settings, n) {
 
 function buildDeck(settings) {
   if ((MODES[settings.mode] || {}).rare) {
-    return shuffle(PROMPTS).slice(0, settings.count).map((p) => ({ rare: true, id: p.id, cat: 'Rarity', text: `${p.emoji} ${p.text}`, items: p.items }));
+    return seededShuffle(PROMPTS, 'nsce-' + todayKey()).slice(0, settings.count).map((p) => ({ rare: true, id: p.id, cat: 'Rarity', text: `${p.emoji} ${p.text}`, items: p.items }));
   }
   const custom = shuffle(customUsable(settings.style));
   let picked;
@@ -195,10 +205,10 @@ function buildDeck(settings) {
 }
 
 function createHost(publish) {
-  const saved = store.get('nsce.settings', {});
+  const saved = store.get('nsce.settings.v2', {});
   const h = {
     phase: 'lobby',
-    settings: { count: 10, time: 15, cat: 'All', mode: 'easy', style: 'pick', source: 'builtin', ...saved },
+    settings: { count: 7, time: 25, cat: 'All', mode: 'rare', style: 'type', source: 'builtin', ...saved },
     players: {},
     deck: [], qIndex: -1, startedAt: 0, answers: {}, timer: null, reveal: null,
 
@@ -240,7 +250,7 @@ function createHost(publish) {
     updateSettings() {
       if (this.phase !== 'lobby') return;
       this.settings = { count: +$('#setCount').value, time: +$('#setTime').value, cat: $('#setCat').value, mode: $('#setMode').value, style: $('#setStyle').value, source: $('#setSource').value };
-      store.set('nsce.settings', this.settings);
+      store.set('nsce.settings.v2', this.settings);
       this.push();
     },
     start() {
@@ -558,10 +568,11 @@ function renderLobby(st, amHost) {
   $('#leaveBtn').textContent = st.solo ? 'Back' : 'Leave';
   $('#modeBlurb').innerHTML = `${mode.emoji} <b>${mode.label}</b>: ${esc(mode.blurb)}${st.settings.style === 'type' ? ' ⌨️ You type the answers yourself.' : ' 🛗 You answer by picking an elevator.'}`;
   const src = { builtin: '', custom: ' · the host’s own questions', mix: ' · a mix with the host’s own questions' }[st.settings.source || 'builtin'];
-  $('#settingsSummary').textContent = amHost ? '' : `${st.settings.count} questions · ${st.settings.time}s each · ${st.settings.cat}${src}`;
-  $('#lobbyEditBtn').style.display = amHost ? '' : 'none';
+  $('#settingsSummary').textContent = amHost ? '' : mode.rare ? `💎 Today’s ${st.settings.count} prompts · ${st.settings.time}s each` : `${st.settings.count} questions · ${st.settings.time}s each · ${st.settings.cat}${src}`;
+  $('#lobbyEditBtn').style.display = amHost && !mode.rare ? '' : 'none';
   // Rarity mode has its own prompts and is always typed, so these don't apply
-  ['#setStyle', '#setCat', '#setSource'].forEach((sel) => { $(sel).disabled = !!mode.rare; });
+  // Rarity has its own prompts and is always typed, so hide the trivia-only settings
+  document.querySelectorAll('.trivia-only').forEach((el) => { el.style.display = mode.rare ? 'none' : ''; });
   if (amHost) {
     $('#setCount').value = st.settings.count; $('#setTime').value = st.settings.time; $('#setCat').value = st.settings.cat;
     $('#setMode').value = st.settings.mode; $('#setStyle').value = st.settings.style; $('#setSource').value = st.settings.source || 'builtin';
