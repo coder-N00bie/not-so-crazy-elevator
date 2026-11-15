@@ -1,5 +1,5 @@
-import { QUESTIONS, CATEGORIES, MODES, checkTyped } from './questions.js?v=3';
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=3';
+import { QUESTIONS, CATEGORIES, MODES, checkTyped } from './questions.js?v=4';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=4';
 
 /* =========================================================
    The Not So Crazy Elevator
@@ -686,7 +686,8 @@ function renderEnd(st, amHost, quiet = false) {
     const pct = Math.round((mine.floor / top) * 100);
     $('#endSub').innerHTML = mine.floor >= top
       ? `${mode.emoji} ${mode.label}: you made it all <b>${mode.roofName}</b> floors to the roof! 🏁`
-      : `${mode.emoji} ${mode.label}: you reached floor <b>${climbed.toLocaleString('en')}</b> of ${mode.roofName}.<br>Only <b>${left.toLocaleString('en')}</b> floors to go (${pct}% of the way).`;
+      : `${mode.emoji} ${mode.label}: you reached floor <b>${climbed.toLocaleString('en')}</b> of ${mode.roofName}.<br>Only <b>${left.toLocaleString('en')}</b> floors to go (${pct}% of the way).` +
+        ((mine.best || 0) > mine.floor ? `<br>Your highest was floor <b>${realFloor(mine.best, st).toLocaleString('en')}</b> before the elevator dropped. 😬` : '');
     $('#endMeter').style.setProperty('--pct', pct + '%');
     $('#endMeterWrap').style.display = '';
   } else $('#endMeterWrap').style.display = 'none';
