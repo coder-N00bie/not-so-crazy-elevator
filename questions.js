@@ -261,6 +261,7 @@ export function matchTyped(input, accepted, wrong = []) {
   let best = Infinity;
   for (const t of targets) {
     if (isNumber(t)) continue;
+    if (squash(g)[0] !== squash(t)[0]) continue; // typos keep the first letter
     const d = lev(squash(g), squash(t));
     if (d <= typoAllowance(squash(t))) best = Math.min(best, d);
   }

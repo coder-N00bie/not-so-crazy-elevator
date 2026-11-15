@@ -1,6 +1,6 @@
-import { QUESTIONS, CATEGORIES, MODES, matchTyped } from './questions.js?v=9';
-import { PROMPTS, findItem, priorShare, rarityScore, rarityLabel } from './rare.js?v=9';
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=9';
+import { QUESTIONS, CATEGORIES, MODES, matchTyped } from './questions.js?v=10';
+import { PROMPTS, findItem, priorShare, rarityScore, rarityLabel } from './rare.js?v=10';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=10';
 
 /* =========================================================
    The Not So Crazy Elevator

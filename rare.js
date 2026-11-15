@@ -2,7 +2,7 @@
 // Each list is roughly ordered from most common to least common answer. That order is
 // used as a starting guess for how popular an answer is, until real players' answers
 // (stored in Supabase) take over.
-import { normalize } from './questions.js?v=9';
+import { normalize } from './questions.js?v=10';
 
 const P = (id, emoji, text, items) => ({ id, emoji, text, items: items.split('|').map((s) => s.trim()).filter(Boolean) });
 
@@ -78,6 +78,8 @@ export function findItem(input, items) {
   let best = null; let bestD = Infinity;
   for (const it of items) {
     const t = squash(normalize(it));
+    // Typos almost always keep the first letter; "dark oak" is not a typo of "cork oak".
+    if (g[0] !== t[0]) continue;
     const allow = t.length < 4 ? 0 : Math.max(1, Math.floor(t.length * 0.34));
     const d = lev(g, t);
     if (d <= allow && d < bestD) { best = it; bestD = d; }
